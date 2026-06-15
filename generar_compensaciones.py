@@ -1,24 +1,13 @@
-"""
-generar_compensaciones.py
-Genera archivos de compensación por fecha única en AREA DE BANCO.
-Basado en la macro CREAR_COMPENSACIONES_PRO del workbook original.
-"""
 import pandas as pd
 import openpyxl
 from datetime import datetime
-import os
+import io
+import streamlit as st
 
 
 def crear_compensaciones(df_area_banco, config):
-    """
-    Agrupa AREA DE BANCO por fecha única y genera un archivo por fecha.
-    """
     if df_area_banco is None or df_area_banco.empty:
         raise ValueError("No hay datos en Área de Banco para generar compensaciones.")
-
-    ruta_comp = config.get("ruta_compensaciones", "")
-    if not ruta_comp:
-        raise ValueError("Configura la ruta de compensaciones en ⚙️ Configuración.")
 
     df = df_area_banco.copy()
     df["FECHA_NORM"] = pd.to_datetime(df["FECHA"], errors="coerce").dt.normalize()
@@ -27,28 +16,37 @@ def crear_compensaciones(df_area_banco, config):
     if len(fechas_unicas) == 0:
         raise ValueError("No se encontraron fechas válidas en Área de Banco.")
 
-    archivos_creados = []
-    hora_str = datetime.now().strftime("%H-%M-%S")
+    hora_str = datetime.now().strftime("%H_%M_%S")
+    archivos_generados = []
 
     for fecha in sorted(fechas_unicas):
         df_fecha = df[df["FECHA_NORM"] == fecha].copy()
         if df_fecha.empty:
             continue
 
-        fecha_str = pd.Timestamp(fecha).strftime("%d-%m-%Y")
+        fecha_str = pd.Timestamp(fecha).strftime("%d_%m_%Y")
         nombre    = f"COMPENSACION_{fecha_str}_{hora_str}.xlsx"
-        ruta_completa = os.path.join(ruta_comp, nombre)
+        buffer    = _generar_excel_compensacion(df_fecha, fecha)
+        archivos_generados.append({"nombre": nombre, "buffer": buffer, "fecha": fecha_str})
 
-        _generar_excel_compensacion(df_fecha, ruta_completa, fecha)
-        archivos_creados.append(nombre)
+    if not archivos_generados:
+        return "No se generaron compensaciones."
 
-    return f"{len(archivos_creados)} compensaciones generadas: {', '.join(archivos_creados)}"
+    # Mostrar botones de descarga
+    st.markdown("#### 📥 Descargar compensaciones generadas:")
+    for arch in archivos_generados:
+        st.download_button(
+            label=f"⬇️ Descargar compensación {arch['fecha']}",
+            data=arch["buffer"],
+            file_name=arch["nombre"],
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"dl_comp_{arch['fecha']}"
+        )
+
+    return f"{len(archivos_generados)} compensaciones generadas correctamente."
 
 
-def _generar_excel_compensacion(df, ruta, fecha):
-    """
-    Genera el archivo Excel de compensación para una fecha.
-    """
+def _generar_excel_compensacion(df, fecha):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Compensacion"
@@ -60,13 +58,15 @@ def _generar_excel_compensacion(df, ruta, fecha):
         "OBSERVACION", "CORRESPONSAL", "FECHA_DOCUMENTO"
     ]
     ws.append(encabezados)
-
     for _, fila in df.iterrows():
-        ws.append([fila.get(c) for c in encabezados if c in df.columns or None])
+        ws.append([fila.get(c) for c in encabezados if c in df.columns])
 
-    # Totales
+    # Total
     ws.append([])
-    ws.append(["TOTAL", "", "", df["VALOR"].sum() if "VALOR" in df.columns else 0])
+    total = pd.to_numeric(df["VALOR"], errors="coerce").sum() if "VALOR" in df.columns else 0
+    ws.append(["TOTAL", "", "", total])
 
-    os.makedirs(os.path.dirname(ruta), exist_ok=True) if os.path.dirname(ruta) else None
-    wb.save(ruta)
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
