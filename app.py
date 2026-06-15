@@ -139,6 +139,18 @@ st.markdown("""
     /* Ocultar elementos de Streamlit */
     #MainMenu, footer, header { visibility: hidden; }
     [data-testid="stDecoration"] { display: none; }
+
+    /* Boton colapsar sidebar siempre visible */
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        z-index: 9999 !important;
+    }
+    [data-testid="stSidebarCollapseButton"] button {
+        display: flex !important;
+        visibility: visible !important;
+        z-index: 9999 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
