@@ -244,6 +244,6 @@ def _fecha(val):
     if val is None:
         return None
     try:
-        return pd.Timestamp(val).strftime("%Y-%m-%d")
+        return pd.Timestamp(val).strftime("%d-%m-%Y")
     except Exception:
         return str(val)[:10] if val else None
