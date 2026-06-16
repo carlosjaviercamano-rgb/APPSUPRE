@@ -1,6 +1,8 @@
 import pandas as pd
 import streamlit as st
 
+VALOR_CORRESPONSAL = 10000
+
 
 def alistar_informacion(df_area_banco, archivo_clientes):
     df_clientes = pd.read_excel(archivo_clientes, sheet_name="sheet1")
@@ -10,7 +12,7 @@ def alistar_informacion(df_area_banco, archivo_clientes):
     df_area_banco["CEDULA_STR"] = df_area_banco["CEDULA"].astype(str).str.strip()
     df_clientes["IDEN_STR"]     = df_clientes["IDEN"].astype(str).str.strip()
 
-    alertas = []
+    alertas     = []
     filas_simples = []
 
     grupos = df_area_banco.groupby("CEDULA_STR")
@@ -31,14 +33,17 @@ def alistar_informacion(df_area_banco, archivo_clientes):
         if n_facturas == 1:
             fechas_unicas = pd.to_datetime(grupo["FECHA"], errors="coerce").dt.normalize().nunique()
             if fechas_unicas <= 1 and n_pagos > 1:
+                # Escenario 1: sumar
                 total = pd.to_numeric(grupo["VALOR"], errors="coerce").sum()
                 fila_base = grupo.iloc[0].copy()
                 fila_base["VALOR"] = total
                 filas_simples.append(_construir_fila(fila_base, companies[0], facturas[0], total))
             else:
+                # Escenario 2: separadas
                 for _, fila_banco in grupo.iterrows():
                     filas_simples.append(_construir_fila(fila_banco, companies[0], facturas[0], fila_banco["VALOR"]))
         else:
+            # Escenarios 3 y 4: múltiples facturas
             alertas.append({
                 "cedula":    cedula_str,
                 "pagos":     grupo.to_dict("records"),
@@ -58,13 +63,26 @@ def alistar_informacion(df_area_banco, archivo_clientes):
 
 
 def _construir_fila(fila_banco, company, num_factura, cuota):
-    entidad = fila_banco.get("ENTIDAD", "")
-    fecha   = fila_banco.get("FECHA")
+    entidad    = fila_banco.get("ENTIDAD", "")
+    fecha      = fila_banco.get("FECHA")
+    corresponsal = fila_banco.get("T_TRANSACCION")
+    cuota_num  = _num(cuota)
+
     try:
         fecha_fmt = pd.Timestamp(fecha).strftime("%d-%m-%Y") if fecha else ""
     except Exception:
         fecha_fmt = str(fecha)[:10] if fecha else ""
+
     detalle = f"{entidad} {fecha_fmt}".strip()
+
+    # ── Lógica CORRESPONSAL ──────────────────────────────────────────────
+    # Si tiene corresponsal (reincidente) → VALOR_CB=10000, DIFERENCIA=cuota-10000
+    if corresponsal and str(corresponsal).strip() != "" and str(corresponsal) != "nan":
+        valor_cb   = VALOR_CORRESPONSAL
+        diferencia = cuota_num - VALOR_CORRESPONSAL
+    else:
+        valor_cb   = None
+        diferencia = None
 
     return {
         "ENTIDAD":         entidad,
@@ -72,14 +90,14 @@ def _construir_fila(fila_banco, company, num_factura, cuota):
         "COMPANY":         company,
         "IDEN":            fila_banco.get("CEDULA"),
         "NUM_FACTURA":     num_factura,
-        "CUOTA":           cuota,
+        "CUOTA":           cuota_num,
         "RECIBO":          fila_banco.get("RECIBO"),
-        "DIFERENCIA":      fila_banco.get("DIFERENCIA"),
-        "VALOR_CB":        fila_banco.get("VALOR_CB"),
+        "DIFERENCIA":      diferencia,
+        "VALOR_CB":        valor_cb,
         "INMOVILIZACION":  fila_banco.get("INMOVILIZACION"),
         "OTROS_GASTOS":    fila_banco.get("OTROS_GASTOS"),
         "OBSERVACION":     fila_banco.get("OBSERVACION"),
-        "CORRESPONSAL":    fila_banco.get("T_TRANSACCION"),
+        "CORRESPONSAL":    corresponsal,
         "FECHA_DOCUMENTO": fila_banco.get("FECHA_DOCUMENTO"),
         "DETALLE":         detalle,
     }
@@ -95,9 +113,8 @@ def _resolver_escenarios_multifactura(alertas):
         st.success("✅ Distribuciones ya confirmadas.")
         return st.session_state["distribuciones_confirmadas"]
 
-    # Usar un formulario para evitar recargas al escribir números
     with st.form(key="form_distribuciones"):
-        inputs = {}  # {cedula: {factura: {"valor": widget_key, "company": ...}}}
+        inputs = {}
 
         for i, alerta in enumerate(alertas):
             cedula    = alerta["cedula"]
@@ -106,20 +123,18 @@ def _resolver_escenarios_multifactura(alertas):
             companies = alerta["companies"]
 
             total_pagos = sum(
-                float(str(p.get("VALOR", 0)).replace(",", "") or 0)
-                for p in pagos
+                _num(p.get("VALOR", 0)) for p in pagos
             )
 
             st.markdown(f"**📋 Cédula: {cedula}** — {alerta['n_pagos']} pago(s), {len(facturas)} factura(s)")
-
             for j, pago in enumerate(pagos):
                 fecha_str = str(pago.get("FECHA", ""))[:10]
-                valor     = float(str(pago.get("VALOR", 0)).replace(",", "") or 0)
+                valor     = _num(pago.get("VALOR", 0))
                 st.caption(f"Pago {j+1}: {fecha_str} — ${valor:,.0f}")
 
             st.markdown(f"**Total a distribuir: ${total_pagos:,.0f}**")
 
-            inputs[cedula] = {}
+            inputs[cedula] = {"facturas": {}, "pagos": pagos}
             cols = st.columns(min(len(facturas), 3))
             for k, (factura, company) in enumerate(zip(facturas, companies)):
                 with cols[k % len(cols)]:
@@ -131,7 +146,7 @@ def _resolver_escenarios_multifactura(alertas):
                         key=f"form_dist_{i}_{k}",
                         format="%.0f"
                     )
-                    inputs[cedula][factura] = {"valor": val, "company": company}
+                    inputs[cedula]["facturas"][factura] = {"valor": val, "company": company}
 
             st.markdown("---")
 
@@ -145,10 +160,9 @@ def _resolver_escenarios_multifactura(alertas):
         # Validar sumas
         errores = []
         for alerta in alertas:
-            cedula = alerta["cedula"]
-            pagos  = alerta["pagos"]
-            total  = sum(float(str(p.get("VALOR", 0)).replace(",", "") or 0) for p in pagos)
-            asignado = sum(v["valor"] for v in inputs[cedula].values())
+            cedula     = alerta["cedula"]
+            total      = sum(_num(p.get("VALOR", 0)) for p in alerta["pagos"])
+            asignado   = sum(v["valor"] for v in inputs[cedula]["facturas"].values())
             if abs(total - asignado) > 0.5:
                 errores.append(f"Cédula {cedula}: total ${total:,.0f} ≠ asignado ${asignado:,.0f}")
 
@@ -163,36 +177,37 @@ def _resolver_escenarios_multifactura(alertas):
             cedula    = alerta["cedula"]
             pagos     = alerta["pagos"]
             pago_base = pagos[0]
-            entidad   = pago_base.get("ENTIDAD", "")
-            fecha     = pago_base.get("FECHA")
-            try:
-                fecha_fmt = pd.Timestamp(fecha).strftime("%d-%m-%Y") if fecha else ""
-            except Exception:
-                fecha_fmt = str(fecha)[:10] if fecha else ""
 
-            for factura, info in inputs[cedula].items():
+            # Fila base temporal para reutilizar _construir_fila
+            fila_base = pd.Series({
+                "ENTIDAD":         pago_base.get("ENTIDAD", ""),
+                "FECHA":           pago_base.get("FECHA"),
+                "CEDULA":          cedula,
+                "RECIBO":          pago_base.get("RECIBO"),
+                "INMOVILIZACION":  pago_base.get("INMOVILIZACION"),
+                "OTROS_GASTOS":    pago_base.get("OTROS_GASTOS"),
+                "OBSERVACION":     pago_base.get("OBSERVACION"),
+                "T_TRANSACCION":   pago_base.get("T_TRANSACCION"),
+                "FECHA_DOCUMENTO": pago_base.get("FECHA_DOCUMENTO"),
+                "VALOR":           0,
+            })
+
+            for factura, info in inputs[cedula]["facturas"].items():
                 if info["valor"] > 0:
-                    filas.append({
-                        "ENTIDAD":         entidad,
-                        "FECHA":           fecha,
-                        "COMPANY":         info["company"],
-                        "IDEN":            cedula,
-                        "NUM_FACTURA":     factura,
-                        "CUOTA":           info["valor"],
-                        "RECIBO":          None,
-                        "DIFERENCIA":      None,
-                        "VALOR_CB":        None,
-                        "INMOVILIZACION":  None,
-                        "OTROS_GASTOS":    None,
-                        "OBSERVACION":     None,
-                        "CORRESPONSAL":    pago_base.get("T_TRANSACCION"),
-                        "FECHA_DOCUMENTO": pago_base.get("FECHA_DOCUMENTO"),
-                        "DETALLE":         f"{entidad} {fecha_fmt}".strip(),
-                    })
+                    fila = _construir_fila(fila_base, info["company"], factura, info["valor"])
+                    filas.append(fila)
 
-        df_confirmado = pd.DataFrame(filas)
-        st.session_state["distribuciones_confirmadas"] = df_confirmado
-        st.success(f"✅ {len(filas)} registros distribuidos correctamente.")
-        st.rerun()
+        if filas:
+            df_confirmado = pd.DataFrame(filas)
+            st.session_state["distribuciones_confirmadas"] = df_confirmado
+            st.success(f"✅ {len(filas)} registros distribuidos correctamente.")
+            st.rerun()
 
     return None
+
+
+def _num(val):
+    try:
+        return float(str(val).replace(",", "") or 0)
+    except Exception:
+        return 0.0
