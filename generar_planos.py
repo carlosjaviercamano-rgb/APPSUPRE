@@ -3,6 +3,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from datetime import datetime
 import io
+import zipfile
 import streamlit as st
 
 EMPRESAS = {
