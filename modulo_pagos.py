@@ -384,6 +384,9 @@ def render_alistar_informacion():
     if ejecutar:
         with st.spinner("Cruzando información y procesando escenarios..."):
             try:
+                # Limpiar marcas previas
+                st.session_state["no_encontradas"] = []
+
                 df_resultado, alertas = alistar_informacion(
                     st.session_state.df_area_banco,
                     st.session_state.archivo_clientes
@@ -392,6 +395,19 @@ def render_alistar_informacion():
                 st.session_state.df_sheet1_base    = df_resultado
                 st.session_state.df_sheet1_alertas = alertas
                 st.session_state.distribuciones_confirmadas = None
+
+                # ── Marcar cédulas no encontradas en AREA DE BANCO ──────
+                no_encontradas = st.session_state.get("no_encontradas", [])
+                if no_encontradas:
+                    df_banco = st.session_state.df_area_banco.copy()
+                    for idx2 in no_encontradas:
+                        if idx2 in df_banco.index:
+                            df_banco.at[idx2, "RECIBOS"] = "NO EXISTE"
+                            for col in ["COMPENSACION"]:
+                                if col in df_banco.columns and (df_banco.at[idx2, col] is None or str(df_banco.at[idx2, col]) == "nan"):
+                                    df_banco.at[idx2, col] = 0
+                    st.session_state.df_area_banco = df_banco
+                    st.warning(f"⚠️ {len(no_encontradas)} cédula(s) no encontradas en clientes activos. Marcadas como 'NO EXISTE' en la tabla.")
 
                 if not alertas:
                     st.session_state.df_sheet1 = df_resultado
