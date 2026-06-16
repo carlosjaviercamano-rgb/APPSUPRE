@@ -116,6 +116,7 @@ def _construir_cash_receipt(df, empresa):
             "aplicaDescuentoProntoPago":   1,
             "aplicaGestionCobranza":       1,
         })
+        consecutivo += 1
 
     return pd.DataFrame(rows)
 
