@@ -216,10 +216,20 @@ def _escribir_hoja(ws, titulo, df):
         cell.font   = header_font
         cell.alignment = header_align
 
+    # Columnas que deben tener formato fecha
+    cols_fecha = [col for col in df.columns if "fecha" in col.lower()]
+    idx_fechas = [list(df.columns).index(c) + 1 for c in cols_fecha]
+
     # Escribir datos
     for row_idx, row in df.iterrows():
         for col_idx, value in enumerate(row, start=1):
-            ws.cell(row=row_idx + 2, column=col_idx, value=value)
+            cell = ws.cell(row=row_idx + 2, column=col_idx, value=value)
+            if col_idx in idx_fechas and value:
+                try:
+                    cell.value = pd.Timestamp(value).to_pydatetime()
+                    cell.number_format = "DD/MM/YYYY"
+                except Exception:
+                    pass
 
     # Ajustar ancho de columnas
     for col in ws.columns:
@@ -240,10 +250,10 @@ def _num(val):
 
 
 def _fecha(val):
-    """Convierte a fecha legible."""
+    """Convierte a datetime para que Excel aplique formato de fecha."""
     if val is None:
         return None
     try:
-        return pd.Timestamp(val).strftime("%d-%m-%Y")
+        return pd.Timestamp(val).to_pydatetime()
     except Exception:
-        return str(val)[:10] if val else None
+        return None
