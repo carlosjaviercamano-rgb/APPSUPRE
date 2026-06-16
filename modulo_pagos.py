@@ -318,17 +318,28 @@ def render_tabla_pagos():
         st.markdown('<div class="tabla-header"><h3>📊 Área de Banco</h3></div>', unsafe_allow_html=True)
 
         # Tabla editable
+        # Columnas visibles en orden AREA DE BANCO
+        cols_visibles = ["FECHA", "ENTIDAD", "CEDULA", "VALOR", "FRA",
+                         "RECIBOS", "FECHA_DOCUMENTO", "REINCIDENTES_CB", "COMPENSACION"]
+        cols_mostrar = [c for c in cols_visibles if c in df.columns]
+
         df_editado = st.data_editor(
-            df,
+            df[cols_mostrar],
             use_container_width=True,
             num_rows="fixed",
             key="tabla_area_banco",
             column_config={
-                "FECHA": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
-                "FECHA_DOCUMENTO": st.column_config.DateColumn("Fecha Doc.", format="DD/MM/YYYY"),
-                "VALOR": st.column_config.NumberColumn("Valor", format="$%d"),
+                "FECHA":           st.column_config.DateColumn("Fecha",          format="DD/MM/YYYY"),
+                "FECHA_DOCUMENTO": st.column_config.DateColumn("Fecha Documento", format="DD/MM/YYYY"),
+                "VALOR":           st.column_config.NumberColumn("Valor",        format="$%d"),
+                "REINCIDENTES_CB": st.column_config.TextColumn("Reincidentes CB"),
+                "COMPENSACION":    st.column_config.TextColumn("Compensación"),
             }
         )
+        # Preservar columnas internas no visibles
+        for col in df.columns:
+            if col not in cols_mostrar:
+                df_editado[col] = df[col].values
         st.session_state.df_area_banco = df_editado
 
         st.caption("Puedes editar celdas directamente en la tabla si necesitas hacer ajustes manuales.")
