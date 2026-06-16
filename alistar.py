@@ -21,8 +21,11 @@ def alistar_informacion(df_area_banco, archivo_clientes):
         clientes_cedula = df_clientes[df_clientes["IDEN_STR"] == cedula_str]
 
         if clientes_cedula.empty:
-            for _, fila_banco in grupo.iterrows():
-                filas_simples.append(_construir_fila(fila_banco, None, None, fila_banco["VALOR"]))
+            # Cédula no encontrada → marcar en área de banco, no incluir en Sheet1
+            for idx2, fila_banco in grupo.iterrows():
+                if "no_encontradas" not in st.session_state:
+                    st.session_state["no_encontradas"] = []
+                st.session_state["no_encontradas"].append(idx2)
             continue
 
         facturas  = clientes_cedula["NUM_FACTURA"].tolist()
