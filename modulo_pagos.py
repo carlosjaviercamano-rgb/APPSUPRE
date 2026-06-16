@@ -358,25 +358,52 @@ def render_alistar_informacion():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    if st.button("🔗  Alistar Información", type="primary", use_container_width=True):
+    # Botón para limpiar y volver a alistar
+    col_btn1, col_btn2 = st.columns([3, 1])
+    with col_btn1:
+        ejecutar = st.button("🔗  Alistar Información", type="primary", use_container_width=True)
+    with col_btn2:
+        if st.button("🔄  Limpiar", use_container_width=True):
+            st.session_state.df_sheet1 = None
+            st.session_state.df_sheet1_base = None
+            st.session_state.df_sheet1_alertas = None
+            st.session_state.distribuciones_confirmadas = None
+            st.rerun()
+
+    if ejecutar:
         with st.spinner("Cruzando información y procesando escenarios..."):
             try:
                 df_resultado, alertas = alistar_informacion(
                     st.session_state.df_area_banco,
                     st.session_state.archivo_clientes
                 )
-                st.session_state.df_sheet1 = df_resultado
+                # Guardar base y alertas en sesión
+                st.session_state.df_sheet1_base    = df_resultado
+                st.session_state.df_sheet1_alertas = alertas
+                st.session_state.distribuciones_confirmadas = None
 
-                if alertas:
-                    st.warning(f"⚠️ Se encontraron {len(alertas)} situaciones que requieren atención:")
-                    # Los escenarios 3 y 4 se manejan en la función alistar
-                else:
+                if not alertas:
+                    st.session_state.df_sheet1 = df_resultado
                     st.success(f"✅ Información alistada. {len(df_resultado)} registros procesados.")
 
             except Exception as e:
                 st.error(f"❌ Error al alistar: {str(e)}")
                 import traceback
                 st.code(traceback.format_exc())
+
+    # Si hay alertas pendientes mostrar el formulario de distribución
+    if st.session_state.get("df_sheet1_alertas"):
+        alertas = st.session_state.df_sheet1_alertas
+        from alistar import _resolver_escenarios_multifactura
+        df_extra = _resolver_escenarios_multifactura(alertas)
+
+        # Cuando el usuario confirma, concatenar base + distribuidos
+        if st.session_state.get("distribuciones_confirmadas") is not None:
+            df_base  = st.session_state.get("df_sheet1_base", pd.DataFrame())
+            df_extra = st.session_state["distribuciones_confirmadas"]
+            df_final = pd.concat([df_base, df_extra], ignore_index=True)
+            st.session_state.df_sheet1 = df_final
+            st.success(f"✅ Información alistada. {len(df_final)} registros procesados.")
 
     # ── Tabla resultado ──────────────────────────────────────────────────
     if st.session_state.df_sheet1 is not None:
