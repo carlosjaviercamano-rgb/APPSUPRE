@@ -93,9 +93,13 @@ def _construir_cash_receipt(df, empresa):
         if not cedula or str(cedula).strip() == "" or str(cedula) == "nan":
             continue
 
-        # J (valorPago): si cuota > 0 usa cuota, sino usa valor del área de banco
-        cuota = _num(row.get("CUOTA"))
-        valor = _num(row.get("VALOR_CB")) if _num(row.get("VALOR_CB")) > 0 else cuota
+        cuota      = _num(row.get("CUOTA"))
+        diferencia = _num(row.get("DIFERENCIA"))
+        valor_cb   = _num(row.get("VALOR_CB"))
+
+        # Si tiene corresponsal (valor_cb > 0) → valorPago = DIFERENCIA
+        # Si no tiene corresponsal → valorPago = CUOTA
+        valor_pago = diferencia if valor_cb > 0 and diferencia > 0 else cuota
 
         rows.append({
             "id":                          1,
@@ -107,7 +111,7 @@ def _construir_cash_receipt(df, empresa):
             "codigoTipoDni":               "CC",
             "dni":                         str(cedula).strip(),
             "factura":                     row.get("NUM_FACTURA", ""),
-            "valorPago":                   cuota if cuota > 0 else valor,
+            "valorPago":                   valor_pago,
             "aplicaInteresMoratorio":      1,
             "aplicaDescuentoProntoPago":   1,
             "aplicaGestionCobranza":       1,
@@ -136,13 +140,13 @@ def _construir_services(df, df_cash):
         # Solo agrega fila si hay valor en VALOR_CB, INMOVILIZACION u OTROS_GASTOS
         if valor_cb > 0:
             codigo_servicio = 586325
-            valor_servicio  = cuota
+            valor_servicio  = valor_cb   # VALOR_CB = $10.000 corresponsal
         elif inmovilizacion > 0:
             codigo_servicio = 19051
-            valor_servicio  = cuota
+            valor_servicio  = inmovilizacion
         elif otros_gastos > 0:
             codigo_servicio = 11111
-            valor_servicio  = cuota
+            valor_servicio  = otros_gastos
         else:
             continue  # Sin valores especiales → no aparece en Services
 
@@ -175,7 +179,7 @@ def _construir_payment_method(df, df_cash, empresa):
         rows.append({
             "idDocumento":      row_cash.get("id", 1),
             "codigoMetodoPago": metodo,
-            "valor":            _num(row_emp.get("CUOTA")),
+            "valor":            _num(row_emp.get("CUOTA")),  # Siempre el valor total
             "voucher":          None,
             "dni":              cedula,
             "codigoTipoDni":    "CC",
