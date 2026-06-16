@@ -5,7 +5,8 @@ from datetime import datetime
 # ─── Hojas por grupo ───────────────────────────────────────────────────────
 HOJAS_BANCARIOS = [
     "BANCOLOMBIA SUPRECREDITO",
-    "DAVIVIENDA SUPRECREDITO"
+    "DAVIVIENDA SUPRECREDITO",
+    "DAVIVIENDA SUPRECREDITO ",   # con espacio al final
 ]
 
 HOJAS_RECAUDOS = [
@@ -92,25 +93,27 @@ def extraer_pagos_bancarios(archivo, archivo_corresponsal):
         if df.empty:
             continue
 
-        # ── Construir fila destino ──────────────────────────────────────
+        # ── Construir fila destino (orden AREA DE BANCO) ──────────────
         df_out = pd.DataFrame()
-        df_out["ENTIDAD"]       = df["ENTIDAD"] if "ENTIDAD" in df.columns else nombre_hoja
-        df_out["FECHA"]         = df["FECHA"]   if "FECHA"   in df.columns else None
-        df_out["CEDULA"]        = df["CEDULA"]
-        df_out["VALOR"]         = df["VALOR"]   if "VALOR"   in df.columns else None
-        df_out["NUM_FACTURA"]   = df["NUM_FACTURA"] if "NUM_FACTURA" in df.columns else None
+        df_out["FECHA"]           = df["FECHA"]   if "FECHA"   in df.columns else None
+        df_out["ENTIDAD"]         = df["ENTIDAD"] if "ENTIDAD" in df.columns else nombre_hoja
+        df_out["CEDULA"]          = df["CEDULA"]
+        df_out["VALOR"]           = df["VALOR"]   if "VALOR"   in df.columns else None
+        df_out["FRA"]             = df["NUM_FACTURA"] if "NUM_FACTURA" in df.columns else None
+        df_out["RECIBOS"]         = None
+        df_out["FECHA_DOCUMENTO"] = None
+        df_out["T_TRANSACCION"]   = None   # interno, no visible
 
         # T_TRANSACCION: solo de BANCOLOMBIA (col F), resto vacío
         if "BANCOLOMBIA" in nombre_hoja.upper() and "T_TRANSACCION_SRC" in df.columns:
             df_out["T_TRANSACCION"] = df["T_TRANSACCION_SRC"]
-        else:
-            df_out["T_TRANSACCION"] = None
 
-        # Columnas vacías que se llenan después
-        for col in ["CUOTA", "RECIBO", "DIFERENCIA", "VALOR_CB",
-                    "INMOVILIZACION", "OTROS_GASTOS", "OBSERVACION",
-                    "CORRESPONSAL", "FECHA_DOCUMENTO"]:
-            df_out[col] = None
+        # REINCIDENTES_CB es la versión visual de T_TRANSACCION
+        df_out["REINCIDENTES_CB"] = None
+        df_out["COMPENSACION"]    = None
+
+        # Alias interno para compatibilidad con alistar.py
+        df_out["NUM_FACTURA"]     = df_out["FRA"]
 
         frames.append(df_out)
 
@@ -131,6 +134,9 @@ def extraer_pagos_bancarios(archivo, archivo_corresponsal):
 
     # 3. Borrar T_TRANSACCION de los PRIMERA VEZ (quedan en blanco)
     df_final.loc[mask_primera_vez, "T_TRANSACCION"] = None
+
+    # 4. Reflejar en REINCIDENTES_CB (columna visual)
+    df_final["REINCIDENTES_CB"] = df_final["T_TRANSACCION"]
 
     # Calcular fecha documento = fecha más reciente de col FECHA
     fecha_doc = None
@@ -185,20 +191,21 @@ def extraer_pagos_recaudos(archivo, fecha_filtro):
             continue
 
         df_out = pd.DataFrame()
-        df_out["ENTIDAD"]       = df["ENTIDAD"] if "ENTIDAD" in df.columns else nombre_hoja
-        df_out["FECHA"]         = df["FECHA"]
-        df_out["CEDULA"]        = df["CEDULA"]  if "CEDULA"  in df.columns else None
-        df_out["VALOR"]         = df["VALOR"]   if "VALOR"   in df.columns else None
-        df_out["NUM_FACTURA"]   = df["NUM_FACTURA"] if "NUM_FACTURA" in df.columns else None
-        df_out["T_TRANSACCION"] = None  # Sin proceso corresponsal
-
-        for col in ["CUOTA", "RECIBO", "DIFERENCIA", "VALOR_CB",
-                    "INMOVILIZACION", "OTROS_GASTOS", "OBSERVACION",
-                    "CORRESPONSAL", "FECHA_DOCUMENTO"]:
-            df_out[col] = None
+        df_out["FECHA"]           = df["FECHA"]
+        df_out["ENTIDAD"]         = df["ENTIDAD"] if "ENTIDAD" in df.columns else nombre_hoja
+        df_out["CEDULA"]          = df["CEDULA"]  if "CEDULA"  in df.columns else None
+        df_out["VALOR"]           = df["VALOR"]   if "VALOR"   in df.columns else None
+        df_out["FRA"]             = df["NUM_FACTURA"] if "NUM_FACTURA" in df.columns else None
+        df_out["RECIBOS"]         = None
+        df_out["T_TRANSACCION"]   = None
+        df_out["REINCIDENTES_CB"] = None
+        df_out["COMPENSACION"]    = None
 
         fecha_doc = df["FECHA"].max()
         df_out["FECHA_DOCUMENTO"] = fecha_doc
+
+        # Alias interno para compatibilidad con alistar.py
+        df_out["NUM_FACTURA"]     = df_out["FRA"]
 
         frames.append(df_out)
 
