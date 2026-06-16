@@ -204,9 +204,6 @@ def _generar_excel(df_cash, df_services, df_payment):
 def _escribir_hoja(ws, titulo, df):
     ws.title = titulo
 
-    if df.empty:
-        return
-
     # Estilo encabezado
     header_fill = PatternFill("solid", fgColor="1F4E79")
     header_font = Font(bold=True, color="FFFFFF", size=10)
