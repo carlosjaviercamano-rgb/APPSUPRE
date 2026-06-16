@@ -148,7 +148,7 @@ def _generar_excel_compensacion(df):
         ws.cell(row=fila_excel, column=4,  value="NIT" if nit_banco else "")
         ws.cell(row=fila_excel, column=5,  value=CODIGO_CUENTA_DEBITO if nit_banco else "")
         ws.cell(row=fila_excel, column=6,  value=valor)
-        ws.cell(row=fila_excel, column=7,  value=str(num_factura) if num_factura else "")
+        ws.cell(row=fila_excel, column=7,  value=_factura(num_factura))
 
         # Fecha con formato
         if fecha_venc:
@@ -192,6 +192,20 @@ def _generar_excel_compensacion(df):
     wb.save(buffer)
     buffer.seek(0)
     return buffer
+
+
+def _factura(val):
+    """Formatea factura sin decimales .0"""
+    if not val or str(val).strip() == "" or str(val) == "nan":
+        return ""
+    try:
+        # Si es número entero como 66722.0 → "66722"
+        f = float(str(val))
+        if f == int(f):
+            return str(int(f))
+        return str(val)
+    except Exception:
+        return str(val).strip()
 
 
 def _num(val):
