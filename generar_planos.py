@@ -133,7 +133,7 @@ def _construir_services(df, df_cash):
         otros_gastos   = _num(row_emp.get("OTROS_GASTOS"))
         cuota          = _num(row_emp.get("CUOTA"))
 
-        # Código de servicio según columna con valor
+        # Solo agrega fila si hay valor en VALOR_CB, INMOVILIZACION u OTROS_GASTOS
         if valor_cb > 0:
             codigo_servicio = 586325
             valor_servicio  = cuota
@@ -144,8 +144,7 @@ def _construir_services(df, df_cash):
             codigo_servicio = 11111
             valor_servicio  = cuota
         else:
-            codigo_servicio = ""
-            valor_servicio  = cuota
+            continue  # Sin valores especiales → no aparece en Services
 
         rows.append({
             "idDocumento":      row_cash.get("id", 1),
