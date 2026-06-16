@@ -88,6 +88,7 @@ def _construir_cash_receipt(df, empresa):
     F=detalle, G="CC", H=dni, I=factura, J=valorPago, K=1, L=1, M=1
     """
     rows = []
+    consecutivo = 1
     for idx, row in df.iterrows():
         cedula = row.get("IDEN")
         if not cedula or str(cedula).strip() == "" or str(cedula) == "nan":
@@ -102,7 +103,7 @@ def _construir_cash_receipt(df, empresa):
         valor_pago = diferencia if valor_cb > 0 and diferencia > 0 else cuota
 
         rows.append({
-            "id":                          1,
+            "id":                          consecutivo,
             "codigoTipoDocumento":         "DC",
             "codigoCentroCosto":           104,
             "fechaDocumento":              _fecha(row.get("FECHA_DOCUMENTO")),
