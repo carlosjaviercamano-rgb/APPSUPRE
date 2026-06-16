@@ -323,15 +323,25 @@ def render_tabla_pagos():
                          "RECIBOS", "FECHA_DOCUMENTO", "REINCIDENTES_CB", "COMPENSACION"]
         cols_mostrar = [c for c in cols_visibles if c in df.columns]
 
+        # Limpiar tipos para evitar conflictos en data_editor
+        df_show = df[cols_mostrar].copy()
+        for col in df_show.columns:
+            if col in ["FECHA", "FECHA_DOCUMENTO"]:
+                df_show[col] = pd.to_datetime(df_show[col], errors="coerce")
+            elif col == "VALOR":
+                df_show[col] = pd.to_numeric(df_show[col], errors="coerce")
+            else:
+                df_show[col] = df_show[col].astype(str).replace("None", "").replace("nan", "")
+
         df_editado = st.data_editor(
-            df[cols_mostrar],
+            df_show,
             use_container_width=True,
             num_rows="fixed",
             key="tabla_area_banco",
             column_config={
-                "FECHA":           st.column_config.DateColumn("Fecha",          format="DD/MM/YYYY"),
+                "FECHA":           st.column_config.DateColumn("Fecha",           format="DD/MM/YYYY"),
                 "FECHA_DOCUMENTO": st.column_config.DateColumn("Fecha Documento", format="DD/MM/YYYY"),
-                "VALOR":           st.column_config.NumberColumn("Valor",        format="$%d"),
+                "VALOR":           st.column_config.NumberColumn("Valor",         format="$%d"),
                 "REINCIDENTES_CB": st.column_config.TextColumn("Reincidentes CB"),
                 "COMPENSACION":    st.column_config.TextColumn("Compensación"),
             }
