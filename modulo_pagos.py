@@ -383,6 +383,52 @@ def render_tabla_pagos():
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# FUNCIÓN: REEMPLAZO DE CÉDULAS NO ENCONTRADAS
+# ══════════════════════════════════════════════════════════════════════════
+def _mostrar_reemplazo_cedulas():
+    no_encontradas = st.session_state.get("pendiente_reemplazo", [])
+
+    st.markdown("---")
+    st.markdown("### ⚠️ Cédulas no encontradas en base de clientes")
+    st.markdown("Puedes reemplazar las cédulas incorrectas antes de continuar. Deja vacío para marcarlas como **NO EXISTE**.")
+
+    with st.form("form_reemplazo_cedulas"):
+        reemplazos = {}
+        cols = st.columns(2)
+        for i, item in enumerate(no_encontradas):
+            with cols[i % 2]:
+                nueva = st.text_input(
+                    f"Cédula **{item['cedula']}** → Reemplazar por:",
+                    value="",
+                    key=f"remp_{i}",
+                    placeholder="Dejar vacío = NO EXISTE"
+                )
+                reemplazos[item["idx"]] = {
+                    "cedula_original": item["cedula"],
+                    "cedula_nueva":    nueva.strip()
+                }
+
+        confirmar = st.form_submit_button(
+            "✅ Confirmar y continuar alistamiento",
+            use_container_width=True,
+            type="primary"
+        )
+
+    if confirmar:
+        df_banco = st.session_state.df_area_banco.copy()
+
+        for idx, info in reemplazos.items():
+            if info["cedula_nueva"]:
+                # Reemplazar cédula en tabla de pagos
+                df_banco.at[idx, "CEDULA"] = info["cedula_nueva"]
+                st.session_state["cedulas_reemplazadas"][idx] = info
+
+        st.session_state.df_area_banco = df_banco
+        st.session_state["pendiente_reemplazo"] = None
+        st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # TAB 3 — ALISTAR INFORMACIÓN
 # ══════════════════════════════════════════════════════════════════════════
 def render_alistar_informacion():
@@ -418,7 +464,42 @@ def render_alistar_informacion():
             st.session_state.distribuciones_confirmadas = None
             st.rerun()
 
+    # ── Paso previo: reemplazo de cédulas no encontradas ────────────────
+    if st.session_state.get("pendiente_reemplazo"):
+        _mostrar_reemplazo_cedulas()
+        return  # No continúa hasta que el usuario confirme
+
     if ejecutar:
+        with st.spinner("Validando cédulas en base de clientes..."):
+            try:
+                # Limpiar marcas previas
+                st.session_state["no_encontradas"] = []
+                st.session_state["cedulas_reemplazadas"] = {}
+
+                # Primera pasada: detectar no encontradas
+                df_clientes = pd.read_excel(
+                    st.session_state.archivo_clientes, sheet_name="sheet1"
+                )
+                df_clientes.columns = [c.strip().upper() for c in df_clientes.columns]
+                cedulas_activas = set(df_clientes["IDEN"].astype(str).str.strip().tolist())
+
+                df_banco = st.session_state.df_area_banco.copy()
+                no_encontradas = []
+                for idx, row in df_banco.iterrows():
+                    cedula = str(row.get("CEDULA","")).strip()
+                    if cedula and cedula != "nan" and cedula not in cedulas_activas:
+                        no_encontradas.append({"idx": idx, "cedula": cedula})
+
+                if no_encontradas:
+                    # Guardar y mostrar recuadro de reemplazo
+                    st.session_state["pendiente_reemplazo"] = no_encontradas
+                    st.rerun()
+                    return
+
+            except Exception as e:
+                st.error(f"❌ Error validando cédulas: {str(e)}")
+                return
+
         with st.spinner("Cruzando información y procesando escenarios..."):
             try:
                 # Limpiar marcas previas
