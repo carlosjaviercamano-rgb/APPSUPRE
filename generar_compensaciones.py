@@ -6,8 +6,8 @@ import io
 import zipfile
 import streamlit as st
 
-# NIT por entidad bancaria
-NIT_ENTIDAD = {
+# ── Configuración BANCARIOS ────────────────────────────────────────────────
+NIT_ENTIDAD_BANCARIOS = {
     "BANCOLOMBIA": "890903938",
     "DAVIVIENDA":  "860034313",
     "PSE":         "830078512",
@@ -15,25 +15,28 @@ NIT_ENTIDAD = {
     "RECORD":      "111111111",
     "OCCIDENTE":   "860002395",
 }
-
-CODIGO_CENTRO_COSTO  = "102"
-CODIGO_CUENTA_DEBITO = "141299011"
+CODIGO_CENTRO_COSTO   = "102"
+CODIGO_CUENTA_DEBITO  = "141299011"
 CODIGO_CUENTA_CREDITO = "110505017"
 
+# ── Configuración RECAUDOS ─────────────────────────────────────────────────
+ENTIDADES_RECAUDO = {
+    "PSE":                  {"nit": "830078512", "cuenta": "138095009"},
+    "EFECTY":               {"nit": "830131993", "cuenta": "138095008"},
+    "RECORD":               {"nit": "800040390", "cuenta": "138095003"},
+    "EFECTY-BANCO DE BOGOTA": {"nit": "830131993", "cuenta": "138095010"},
+}
 
-def crear_compensaciones(df_area_banco, config):
+
+def crear_compensaciones(df_area_banco, config, tipo_pago="bancarios"):
     if df_area_banco is None or df_area_banco.empty:
         raise ValueError("No hay datos en Área de Banco para generar compensaciones.")
 
     df = df_area_banco.copy()
-
-    # Normalizar fechas
     df["FECHA_NORM"]     = pd.to_datetime(df["FECHA"],           errors="coerce").dt.normalize()
     df["FECHA_DOC_NORM"] = pd.to_datetime(df["FECHA_DOCUMENTO"], errors="coerce").dt.normalize()
 
-    # Agrupar por FECHA_DOCUMENTO
     fechas_doc = df["FECHA_DOC_NORM"].dropna().unique()
-
     if len(fechas_doc) == 0:
         raise ValueError("No se encontraron fechas de documento válidas.")
 
@@ -47,7 +50,12 @@ def crear_compensaciones(df_area_banco, config):
 
         fecha_str = pd.Timestamp(fecha_doc).strftime("%d_%m_%Y")
         nombre    = f"COMPENSACION_{fecha_str}_{hora_str}.xlsx"
-        buffer    = _generar_excel_compensacion(df_grupo)
+
+        if tipo_pago == "bancarios":
+            buffer = _generar_bancarios(df_grupo)
+        else:
+            buffer = _generar_recaudos(df_grupo, fecha_doc)
+
         archivos_generados.append({
             "nombre": nombre,
             "buffer": buffer,
@@ -65,8 +73,7 @@ def crear_compensaciones(df_area_banco, config):
             zf.writestr(arch["nombre"], arch["buffer"].read())
     zip_buffer.seek(0)
 
-    hora_zip  = datetime.now().strftime("%H_%M_%S")
-    zip_nombre = f"COMPENSACIONES_{hora_zip}.zip"
+    zip_nombre = f"COMPENSACIONES_{hora_str}.zip"
 
     st.markdown("#### 📥 Descargar compensaciones generadas:")
     st.download_button(
@@ -93,23 +100,176 @@ def crear_compensaciones(df_area_banco, config):
     return f"{len(archivos_generados)} compensaciones generadas correctamente."
 
 
-def _generar_excel_compensacion(df):
-    """
-    Genera el archivo Items con DÉBITOS seguidos de CRÉDITOS.
-    Sin filas en blanco entre ellos.
-    Consecutivo global no se reinicia.
-    """
+# ══════════════════════════════════════════════════════════════════════════
+# LÓGICA BANCARIOS
+# ══════════════════════════════════════════════════════════════════════════
+def _generar_bancarios(df):
+    wb  = openpyxl.Workbook()
+    ws  = wb.active
+    ws.title = "Items"
+
+    _escribir_encabezado(ws)
+
+    consecutivo = 1
+    fila_excel  = 2
+    filas_validas = [row for _, row in df.iterrows()
+                     if str(row.get("CEDULA","")).strip() not in ("", "nan")]
+
+    # DÉBITOS
+    for row in filas_validas:
+        entidad = str(row.get("ENTIDAD","")).upper().strip()
+        valor   = _num(row.get("VALOR"))
+        fra     = _factura(row.get("FRA") or row.get("NUM_FACTURA"))
+        fecha_v = _fecha_dt(row.get("FECHA"))
+
+        nit = ""
+        for clave, n in NIT_ENTIDAD_BANCARIOS.items():
+            if clave in entidad:
+                nit = n
+                break
+
+        _escribir_fila(ws, fila_excel, [
+            consecutivo,
+            CODIGO_CENTRO_COSTO if nit else "",
+            nit,
+            "NIT" if nit else "",
+            CODIGO_CUENTA_DEBITO if nit else "",
+            valor,
+            fra,
+            fecha_v,
+            None, None, None, None
+        ])
+        if fecha_v:
+            ws.cell(row=fila_excel, column=8).number_format = "DD/MM/YYYY"
+
+        consecutivo += 1
+        fila_excel  += 1
+
+    # CRÉDITOS
+    for row in filas_validas:
+        cedula = str(row.get("CEDULA","")).strip()
+        valor  = _num(row.get("VALOR"))
+
+        _escribir_fila(ws, fila_excel, [
+            consecutivo,
+            CODIGO_CENTRO_COSTO,
+            cedula,
+            "CC",
+            CODIGO_CUENTA_CREDITO,
+            -abs(valor),
+            "", "", None, None, None, None
+        ])
+
+        consecutivo += 1
+        fila_excel  += 1
+
+    _ajustar_anchos(ws)
+    return _to_buffer(wb)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# LÓGICA RECAUDOS
+# ══════════════════════════════════════════════════════════════════════════
+def _generar_recaudos(df, fecha_doc):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Items"
 
+    _escribir_encabezado(ws)
+
+    consecutivo = 1
+    fila_excel  = 2
+
+    fecha_doc_dt = _fecha_dt(fecha_doc)
+    fecha_doc_str = pd.Timestamp(fecha_doc).strftime("%d-%m-%Y") if fecha_doc else ""
+
+    # ── DÉBITOS: una fila por entidad recaudadora con suma de valores ────
+    for nombre_entidad, info in ENTIDADES_RECAUDO.items():
+        # Sumar valores de esa entidad
+        mask = df["ENTIDAD"].astype(str).str.upper().str.strip() == nombre_entidad.upper()
+        total = pd.to_numeric(df.loc[mask, "VALOR"], errors="coerce").sum()
+
+        if total <= 0:
+            continue  # Solo aparece si hay valores
+
+        detalle = f"{nombre_entidad} COMPENSACION {fecha_doc_str}"
+
+        _escribir_fila(ws, fila_excel, [
+            consecutivo,
+            CODIGO_CENTRO_COSTO,
+            info["nit"],
+            "NIT",
+            info["cuenta"],
+            total,
+            fecha_doc_str,
+            fecha_doc_dt,
+            None, None, None, detalle
+        ])
+        if fecha_doc_dt:
+            ws.cell(row=fila_excel, column=8).number_format = "DD/MM/YYYY"
+
+        consecutivo += 1
+        fila_excel  += 1
+
+    # ── CRÉDITOS: uno por cliente ────────────────────────────────────────
+    for _, row in df.iterrows():
+        cedula  = str(row.get("CEDULA","")).strip()
+        if not cedula or cedula == "nan":
+            continue
+
+        valor   = _num(row.get("VALOR"))
+        recibos = str(row.get("RECIBOS","")).strip()
+        entidad = str(row.get("ENTIDAD","")).upper().strip()
+        fra     = _factura(row.get("FRA") or row.get("NUM_FACTURA"))
+        fecha_v = _fecha_dt(row.get("FECHA"))
+        detalle = str(row.get("DETALLE",""))
+
+        if recibos == "NO EXISTE":
+            # Crédito va al NIT de la entidad recaudadora
+            info_ent = ENTIDADES_RECAUDO.get(entidad, {})
+            nit_cred  = info_ent.get("nit", "")
+            tipo_dni  = "NIT"
+            cuenta    = CODIGO_CUENTA_DEBITO   # 141299011
+            fra_out   = fra
+            fecha_out = fecha_v
+        else:
+            # Crédito normal al cliente
+            nit_cred  = cedula
+            tipo_dni  = "CC"
+            cuenta    = CODIGO_CUENTA_CREDITO  # 110505017
+            fra_out   = ""
+            fecha_out = None
+
+        _escribir_fila(ws, fila_excel, [
+            consecutivo,
+            CODIGO_CENTRO_COSTO if nit_cred else "",
+            nit_cred,
+            tipo_dni if nit_cred else "",
+            cuenta if nit_cred else "",
+            -abs(valor) if valor else "",
+            fra_out,
+            fecha_out,
+            None, None, None, detalle
+        ])
+        if fecha_out:
+            ws.cell(row=fila_excel, column=8).number_format = "DD/MM/YYYY"
+
+        consecutivo += 1
+        fila_excel  += 1
+
+    _ajustar_anchos(ws)
+    return _to_buffer(wb)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# UTILIDADES
+# ══════════════════════════════════════════════════════════════════════════
+def _escribir_encabezado(ws):
     encabezados = [
         "Id", "codigoCentroCosto", "dniTercero", "codigoTipoDniTercero",
         "codigoCuenta", "valor", "factura", "fechaVencimiento",
         "codigoImpuesto", "valorBaseImpuesto", "porcentajeImpuesto", "detalle"
     ]
-
-    # Encabezado con formato
     header_fill = PatternFill("solid", fgColor="1F4E79")
     header_font = Font(bold=True, color="FFFFFF", size=10)
     for col_idx, col_name in enumerate(encabezados, start=1):
@@ -118,94 +278,23 @@ def _generar_excel_compensacion(df):
         cell.font      = header_font
         cell.alignment = Alignment(horizontal="center")
 
-    # ── Filtrar solo filas con cédula válida ────────────────────────────
-    filas_validas = []
-    for _, row in df.iterrows():
-        cedula = str(row.get("CEDULA", "")).strip()
-        if cedula and cedula != "nan":
-            filas_validas.append(row)
 
-    consecutivo = 1
-    fila_excel  = 2
+def _escribir_fila(ws, fila, valores):
+    for col_idx, val in enumerate(valores, start=1):
+        ws.cell(row=fila, column=col_idx, value=val)
 
-    # ── DÉBITOS ─────────────────────────────────────────────────────────
-    for row in filas_validas:
-        entidad     = str(row.get("ENTIDAD", "")).upper().strip()
-        valor       = _num(row.get("VALOR"))
-        num_factura = row.get("NUM_FACTURA", "")
-        fecha_venc  = _fecha_dt(row.get("FECHA"))   # fecha del libro de banco
 
-        # NIT del banco
-        nit_banco = ""
-        for clave, nit in NIT_ENTIDAD.items():
-            if clave in entidad:
-                nit_banco = nit
-                break
-
-        ws.cell(row=fila_excel, column=1,  value=consecutivo)
-        ws.cell(row=fila_excel, column=2,  value=CODIGO_CENTRO_COSTO if nit_banco else "")
-        ws.cell(row=fila_excel, column=3,  value=nit_banco)
-        ws.cell(row=fila_excel, column=4,  value="NIT" if nit_banco else "")
-        ws.cell(row=fila_excel, column=5,  value=CODIGO_CUENTA_DEBITO if nit_banco else "")
-        ws.cell(row=fila_excel, column=6,  value=valor)
-        ws.cell(row=fila_excel, column=7,  value=_factura(num_factura))
-
-        # Fecha con formato
-        if fecha_venc:
-            cell_f = ws.cell(row=fila_excel, column=8, value=fecha_venc)
-            cell_f.number_format = "DD/MM/YYYY"
-        else:
-            ws.cell(row=fila_excel, column=8, value="")
-
-        consecutivo += 1
-        fila_excel  += 1
-
-    # ── CRÉDITOS (inmediatamente después, sin filas en blanco) ──────────
-    for row in filas_validas:
-        cedula  = str(row.get("CEDULA", "")).strip()
-        valor   = _num(row.get("VALOR"))
-        nit_banco = ""
-        entidad = str(row.get("ENTIDAD", "")).upper().strip()
-        for clave, nit in NIT_ENTIDAD.items():
-            if clave in entidad:
-                nit_banco = nit
-                break
-
-        ws.cell(row=fila_excel, column=1,  value=consecutivo)
-        ws.cell(row=fila_excel, column=2,  value=CODIGO_CENTRO_COSTO if cedula else "")
-        ws.cell(row=fila_excel, column=3,  value=cedula)
-        ws.cell(row=fila_excel, column=4,  value="CC" if cedula else "")
-        ws.cell(row=fila_excel, column=5,  value=CODIGO_CUENTA_CREDITO if cedula else "")
-        ws.cell(row=fila_excel, column=6,  value=-abs(valor) if valor else "")
-        ws.cell(row=fila_excel, column=7,  value="")   # factura vacía en crédito
-        ws.cell(row=fila_excel, column=8,  value="")   # fecha vacía en crédito
-
-        consecutivo += 1
-        fila_excel  += 1
-
-    # Ajustar anchos
+def _ajustar_anchos(ws):
     for col in ws.columns:
         max_len = max((len(str(c.value)) if c.value else 0) for c in col)
         ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
 
+
+def _to_buffer(wb):
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
     return buffer
-
-
-def _factura(val):
-    """Formatea factura sin decimales .0"""
-    if not val or str(val).strip() == "" or str(val) == "nan":
-        return ""
-    try:
-        # Si es número entero como 66722.0 → "66722"
-        f = float(str(val))
-        if f == int(f):
-            return str(int(f))
-        return str(val)
-    except Exception:
-        return str(val).strip()
 
 
 def _num(val):
@@ -215,8 +304,17 @@ def _num(val):
         return 0.0
 
 
+def _factura(val):
+    if not val or str(val).strip() in ("", "nan"):
+        return ""
+    try:
+        f = float(str(val))
+        return str(int(f)) if f == int(f) else str(val)
+    except Exception:
+        return str(val).strip()
+
+
 def _fecha_dt(val):
-    """Retorna datetime para formato Excel."""
     if val is None:
         return None
     try:
