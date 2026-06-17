@@ -675,6 +675,18 @@ def render_generar_archivos():
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
 
+        # Mostrar botones de descarga persistentes
+        if st.session_state.get("planos_generados"):
+            st.markdown("#### 📥 Descargar planos:")
+            for arch in st.session_state["planos_generados"]:
+                st.download_button(
+                    label=f"⬇️  {arch['empresa']}",
+                    data=arch["buffer"],
+                    file_name=arch["nombre"],
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"dl_plano_{arch['empresa']}"
+                )
+
     with col2:
         st.markdown("#### 📊 Compensaciones por fecha")
         st.caption("Genera un archivo de compensación por cada fecha única en Área de Banco.")
