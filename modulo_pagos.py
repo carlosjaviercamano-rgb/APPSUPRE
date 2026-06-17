@@ -444,11 +444,18 @@ def _mostrar_reemplazo_cedulas():
     if confirmar:
         df_banco = st.session_state.df_area_banco.copy()
 
+        # Inicializar set de cédulas ya revisadas
+        if "cedulas_ya_revisadas" not in st.session_state:
+            st.session_state["cedulas_ya_revisadas"] = set()
+
         for idx, info in reemplazos.items():
             if info["cedula_nueva"]:
                 # Reemplazar cédula en tabla de pagos
                 df_banco.at[idx, "CEDULA"] = info["cedula_nueva"]
                 st.session_state["cedulas_reemplazadas"][idx] = info
+            else:
+                # Marcar como ya revisada (quedará como NO EXISTE)
+                st.session_state["cedulas_ya_revisadas"].add(info["cedula_original"])
 
         st.session_state.df_area_banco = df_banco
         st.session_state["pendiente_reemplazo"] = None
@@ -489,6 +496,9 @@ def render_alistar_informacion():
             st.session_state.df_sheet1_base = None
             st.session_state.df_sheet1_alertas = None
             st.session_state.distribuciones_confirmadas = None
+            st.session_state["pendiente_reemplazo"] = None
+            st.session_state["cedulas_ya_revisadas"] = set()
+            st.session_state["cedulas_reemplazadas"] = {}
             st.rerun()
 
     # ── Paso previo: reemplazo de cédulas no encontradas ────────────────
@@ -517,9 +527,16 @@ def render_alistar_informacion():
                     if cedula and cedula != "nan" and cedula not in cedulas_activas:
                         no_encontradas.append({"idx": idx, "cedula": cedula})
 
-                if no_encontradas:
+                # Filtrar las que ya fueron revisadas anteriormente
+                ya_revisadas = st.session_state.get("cedulas_ya_revisadas", set())
+                no_encontradas_nuevas = [
+                    item for item in no_encontradas
+                    if item["cedula"] not in ya_revisadas
+                ]
+
+                if no_encontradas_nuevas:
                     # Guardar y mostrar recuadro de reemplazo
-                    st.session_state["pendiente_reemplazo"] = no_encontradas
+                    st.session_state["pendiente_reemplazo"] = no_encontradas_nuevas
                     st.rerun()
                     return
 
