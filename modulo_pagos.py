@@ -565,3 +565,117 @@ def render_generar_archivos():
                     st.success(f"✅ {resultado}")
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
+
+    # ── Consecutivos de compensación ─────────────────────────────────────
+    st.markdown("---")
+    st.markdown("#### 🔢 Registrar consecutivos de compensación")
+    st.caption("Ingresa el consecutivo que generó el sistema por cada fecha de compensación.")
+
+    df_banco = st.session_state.df_area_banco
+    if df_banco is not None and "FECHA_DOCUMENTO" in df_banco.columns:
+        fechas_doc = pd.to_datetime(df_banco["FECHA_DOCUMENTO"], errors="coerce").dt.normalize().dropna().unique()
+
+        if len(fechas_doc) > 0:
+            if "consecutivos_comp" not in st.session_state:
+                st.session_state.consecutivos_comp = {}
+
+            with st.form("form_consecutivos"):
+                cols = st.columns(min(len(fechas_doc), 3))
+                for i, fecha in enumerate(sorted(fechas_doc)):
+                    fecha_str = pd.Timestamp(fecha).strftime("%d/%m/%Y")
+                    with cols[i % len(cols)]:
+                        val = st.text_input(
+                            f"Compensación {fecha_str}",
+                            value=st.session_state.consecutivos_comp.get(fecha_str, ""),
+                            key=f"consec_{i}"
+                        )
+                        st.session_state.consecutivos_comp[fecha_str] = val
+
+                aplicar = st.form_submit_button(
+                    "✅ Aplicar consecutivos a tabla de pagos",
+                    use_container_width=True,
+                    type="primary"
+                )
+
+            if aplicar:
+                df_banco = st.session_state.df_area_banco.copy()
+                df_banco["FECHA_DOC_STR"] = pd.to_datetime(
+                    df_banco["FECHA_DOCUMENTO"], errors="coerce"
+                ).dt.strftime("%d/%m/%Y")
+
+                for fecha_str, consec in st.session_state.consecutivos_comp.items():
+                    if consec.strip():
+                        mask = df_banco["FECHA_DOC_STR"] == fecha_str
+                        df_banco.loc[mask, "COMPENSACION"] = consec.strip()
+
+                df_banco = df_banco.drop(columns=["FECHA_DOC_STR"])
+                st.session_state.df_area_banco = df_banco
+                st.success("✅ Consecutivos aplicados correctamente a la tabla de pagos.")
+
+    # ── Exportar tabla de pagos con consecutivos ─────────────────────────
+    st.markdown("---")
+    st.markdown("#### 💾 Exportar tabla de pagos")
+    st.caption("Descarga la tabla de pagos con los consecutivos de compensación aplicados.")
+
+    if st.button("💾  Generar Excel tabla de pagos", use_container_width=True, key="btn_export_tabla"):
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment
+            import io as _io
+
+            df_export = st.session_state.df_area_banco.copy()
+
+            # Solo columnas visibles de AREA DE BANCO
+            cols_visibles = ["FECHA", "ENTIDAD", "CEDULA", "VALOR", "FRA",
+                             "RECIBOS", "FECHA_DOCUMENTO", "REINCIDENTES_CB", "COMPENSACION"]
+            cols_export = [c for c in cols_visibles if c in df_export.columns]
+            df_export = df_export[cols_export]
+
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "AREA DE BANCO"
+
+            # Encabezado
+            header_fill = PatternFill("solid", fgColor="1F4E79")
+            header_font = Font(bold=True, color="FFFFFF", size=10)
+            for col_idx, col_name in enumerate(df_export.columns, start=1):
+                cell = ws.cell(row=1, column=col_idx, value=col_name)
+                cell.fill      = header_fill
+                cell.font      = header_font
+                cell.alignment = Alignment(horizontal="center")
+
+            # Datos
+            cols_fecha = ["FECHA", "FECHA_DOCUMENTO"]
+            idx_fechas = [list(df_export.columns).index(c)+1 for c in cols_fecha if c in df_export.columns]
+
+            for row_idx, row in df_export.iterrows():
+                for col_idx, value in enumerate(row, start=1):
+                    cell = ws.cell(row=row_idx+2, column=col_idx, value=value)
+                    if col_idx in idx_fechas and value:
+                        try:
+                            cell.value = pd.Timestamp(value).to_pydatetime()
+                            cell.number_format = "DD/MM/YYYY"
+                        except Exception:
+                            pass
+
+            # Ajustar anchos
+            for col in ws.columns:
+                max_len = max((len(str(c.value)) if c.value else 0) for c in col)
+                ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 30)
+
+            buffer = _io.BytesIO()
+            wb.save(buffer)
+            buffer.seek(0)
+
+            from datetime import datetime as _dt
+            nombre = f"TABLA_PAGOS_{_dt.now().strftime('%d_%m_%Y_%H_%M_%S')}.xlsx"
+
+            st.download_button(
+                label="⬇️  Descargar tabla de pagos",
+                data=buffer,
+                file_name=nombre,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_tabla_pagos"
+            )
+        except Exception as e:
+            st.error(f"❌ Error al exportar: {str(e)}")
