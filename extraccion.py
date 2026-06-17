@@ -157,16 +157,17 @@ def extraer_pagos_bancarios(archivo, archivo_corresponsal):
     return df_final, resumen
 
 
-def extraer_pagos_recaudos(archivo, fecha_filtro):
+def extraer_pagos_recaudos(archivo, fechas_filtro):
     """
     Extrae datos de las hojas de PAGOS POR RECAUDOS.
-    Filtro: columna A (FECHAINGRESO) = fecha seleccionada.
-    Misma estructura de copiado que bancarios, sin proceso CORRESPONSAL.
+    Filtro: columna A (FECHAINGRESO) en lista de fechas seleccionadas.
+    FECHA_DOCUMENTO = la misma fecha de cada registro (no la más reciente).
     """
-    if fecha_filtro is None:
-        raise ValueError("Debes seleccionar una fecha para los Pagos por Recaudos.")
+    if not fechas_filtro:
+        raise ValueError("Debes seleccionar al menos una fecha para los Pagos por Recaudos.")
 
-    fecha_dt = pd.Timestamp(fecha_filtro)
+    # Convertir fechas a timestamps normalizados
+    fechas_dt = [pd.Timestamp(f).normalize() for f in fechas_filtro]
     frames = []
 
     for nombre_hoja in HOJAS_RECAUDOS:
@@ -183,9 +184,9 @@ def extraer_pagos_recaudos(archivo, fecha_filtro):
         if df.shape[1] > COL_RECIBO:  rename[f"COL_{COL_RECIBO}"]  = "RECIBO_SRC"
         df = df.rename(columns=rename)
 
-        # ── Filtro por fecha ────────────────────────────────────────────
+        # ── Filtro por múltiples fechas ─────────────────────────────────
         df["FECHA"] = pd.to_datetime(df["FECHA"], errors="coerce")
-        df = df[df["FECHA"].dt.normalize() == fecha_dt.normalize()].copy()
+        df = df[df["FECHA"].dt.normalize().isin(fechas_dt)].copy()
 
         if df.empty:
             continue
@@ -201,19 +202,21 @@ def extraer_pagos_recaudos(archivo, fecha_filtro):
         df_out["REINCIDENTES_CB"] = None
         df_out["COMPENSACION"]    = None
 
-        fecha_doc = df["FECHA"].max()
-        df_out["FECHA_DOCUMENTO"] = fecha_doc
+        # FECHA_DOCUMENTO = la misma fecha de cada registro (no la más reciente)
+        df_out["FECHA_DOCUMENTO"] = df["FECHA"]
 
-        # Alias interno para compatibilidad con alistar.py
-        df_out["NUM_FACTURA"]     = df_out["FRA"]
+        # Alias interno
+        df_out["NUM_FACTURA"] = df_out["FRA"]
 
         frames.append(df_out)
 
     if not frames:
-        raise ValueError(f"No se encontraron registros para la fecha {fecha_filtro.strftime('%d/%m/%Y')} en las hojas de Recaudos.")
+        fechas_str = ", ".join(f.strftime("%d/%m/%Y") for f in fechas_filtro)
+        raise ValueError(f"No se encontraron registros para las fechas {fechas_str} en las hojas de Recaudos.")
 
     df_final = pd.concat(frames, ignore_index=True)
-    resumen = f"{len(df_final)} registros extraídos para la fecha {fecha_filtro.strftime('%d/%m/%Y')}."
+    fechas_str = ", ".join(f.strftime("%d/%m/%Y") for f in fechas_filtro)
+    resumen = f"{len(df_final)} registros extraídos para las fechas: {fechas_str}."
     return df_final, resumen
 
 
