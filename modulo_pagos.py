@@ -161,65 +161,92 @@ def render():
 # ══════════════════════════════════════════════════════════════════════════
 # TAB 1 — CARGA DE ARCHIVOS
 # ══════════════════════════════════════════════════════════════════════════
+# URL base del repositorio GitHub (raw)
+GITHUB_RAW = "https://raw.githubusercontent.com/carlosjaviercamano-rgb/APPSUPRE/main"
+
+def _cargar_desde_github(nombre_archivo):
+    """Carga un archivo Excel desde GitHub y lo retorna como BytesIO."""
+    import requests
+    import io
+    url = f"{GITHUB_RAW}/{nombre_archivo}"
+    resp = requests.get(url)
+    if resp.status_code == 200:
+        return io.BytesIO(resp.content)
+    return None
+
+
 def render_carga_archivos():
     st.markdown("### Archivos necesarios para el proceso")
-    st.markdown('<div class="alerta-info">📌 Carga los tres archivos antes de continuar. El libro de banco se puede reemplazar cada vez que vayas a trabajar.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="alerta-info">📌 Los archivos de Clientes Activos y Corresponsal se cargan automáticamente desde el repositorio. Solo debes subir el Libro de Banco cada vez que vayas a trabajar.</div>', unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns(3)
+    # ── Cargar automáticamente desde GitHub ─────────────────────────────
+    if st.session_state.archivo_clientes is None:
+        archivo = _cargar_desde_github("CLIENTES_ACTIVOS.xlsx")
+        if archivo:
+            st.session_state.archivo_clientes = archivo
 
-    with col1:
-        st.markdown("**📂 Libro de Banco**")
-        st.caption("Archivo descargado de SharePoint / OneDrive")
-        archivo_libro = st.file_uploader(
-            "Subir libro de banco",
-            type=["xlsx", "xlsm"],
-            key="up_libro",
-            label_visibility="collapsed"
-        )
-        if archivo_libro:
-            st.session_state.archivo_libro = archivo_libro
-            st.success(f"✅ {archivo_libro.name}")
+    if st.session_state.archivo_corresponsal is None:
+        archivo = _cargar_desde_github("CORRESPONSAL.xlsx")
+        if archivo:
+            st.session_state.archivo_corresponsal = archivo
 
-    with col2:
-        st.markdown("**👥 Clientes Activos**")
-        st.caption("Base de datos: company, cédula, factura")
-        archivo_clientes = st.file_uploader(
-            "Subir clientes activos",
-            type=["xlsx"],
-            key="up_clientes",
-            label_visibility="collapsed"
-        )
-        if archivo_clientes:
-            st.session_state.archivo_clientes = archivo_clientes
-            st.success(f"✅ {archivo_clientes.name}")
+    # ── Solo cargador del Libro de Banco ────────────────────────────────
+    st.markdown("**📂 Libro de Banco**")
+    st.caption("Archivo descargado de SharePoint / OneDrive — se reemplaza cada vez que vayas a trabajar.")
 
-    with col3:
-        st.markdown("**🔑 Corresponsal**")
-        st.caption("Historial de cédulas reincidentes")
-        archivo_corresponsal = st.file_uploader(
-            "Subir archivo corresponsal",
-            type=["xlsx"],
-            key="up_corresponsal",
-            label_visibility="collapsed"
-        )
-        if archivo_corresponsal:
-            st.session_state.archivo_corresponsal = archivo_corresponsal
-            st.success(f"✅ {archivo_corresponsal.name}")
+    archivo_libro = st.file_uploader(
+        "Subir libro de banco",
+        type=["xlsx", "xlsm"],
+        key="up_libro",
+        label_visibility="collapsed"
+    )
+    if archivo_libro:
+        st.session_state.archivo_libro = archivo_libro
+        st.success(f"✅ {archivo_libro.name}")
 
-    # ── Estado de archivos cargados ──────────────────────────────────────
+    # ── Estado de archivos ───────────────────────────────────────────────
     st.markdown("---")
-    libro_ok      = st.session_state.archivo_libro is not None
-    clientes_ok   = st.session_state.archivo_clientes is not None
+    libro_ok        = st.session_state.archivo_libro is not None
+    clientes_ok     = st.session_state.archivo_clientes is not None
     corresponsal_ok = st.session_state.archivo_corresponsal is not None
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Libro de Banco",   "✅ Cargado" if libro_ok      else "⚠️ Pendiente")
-    c2.metric("Clientes Activos", "✅ Cargado" if clientes_ok   else "⚠️ Pendiente")
-    c3.metric("Corresponsal",     "✅ Cargado" if corresponsal_ok else "⚠️ Pendiente")
+    c1.metric("Libro de Banco",   "✅ Cargado"    if libro_ok        else "⚠️ Pendiente")
+    c2.metric("Clientes Activos", "✅ Automático" if clientes_ok     else "⚠️ No encontrado")
+    c3.metric("Corresponsal",     "✅ Automático" if corresponsal_ok else "⚠️ No encontrado")
 
     if libro_ok and clientes_ok and corresponsal_ok:
-        st.success("🎉 Todos los archivos están cargados. Ve a la pestaña **2. Tabla de Pagos** para continuar.")
+        st.success("🎉 Todo listo. Ve a la pestaña **2. Tabla de Pagos** para continuar.")
+    elif not clientes_ok or not corresponsal_ok:
+        st.warning("⚠️ No se pudieron cargar los archivos de referencia desde GitHub. Verifica que estén en el repositorio.")
+
+    # ── Actualizar archivos de referencia (admin) ────────────────────────
+    with st.expander("🔧 Actualizar archivos de referencia"):
+        st.caption("Solo usa esto si necesitas reemplazar manualmente Clientes Activos o Corresponsal.")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**👥 Clientes Activos**")
+            nuevo_clientes = st.file_uploader(
+                "Reemplazar clientes activos",
+                type=["xlsx"],
+                key="up_clientes_manual",
+                label_visibility="collapsed"
+            )
+            if nuevo_clientes:
+                st.session_state.archivo_clientes = nuevo_clientes
+                st.success(f"✅ {nuevo_clientes.name}")
+        with col2:
+            st.markdown("**🔑 Corresponsal**")
+            nuevo_corresponsal = st.file_uploader(
+                "Reemplazar corresponsal",
+                type=["xlsx"],
+                key="up_corresponsal_manual",
+                label_visibility="collapsed"
+            )
+            if nuevo_corresponsal:
+                st.session_state.archivo_corresponsal = nuevo_corresponsal
+                st.success(f"✅ {nuevo_corresponsal.name}")
 
 
 # ══════════════════════════════════════════════════════════════════════════
