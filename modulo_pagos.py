@@ -521,9 +521,9 @@ def render_alistar_informacion():
                     for idx2 in no_encontradas:
                         if idx2 in df_banco.index:
                             df_banco.at[idx2, "RECIBOS"] = "NO EXISTE"
-                            for col in ["COMPENSACION"]:
-                                if col in df_banco.columns and (df_banco.at[idx2, col] is None or str(df_banco.at[idx2, col]) == "nan"):
-                                    df_banco.at[idx2, col] = 0
+                            if "COMPENSACION" in df_banco.columns:
+                                if df_banco.at[idx2, "COMPENSACION"] is None or str(df_banco.at[idx2, "COMPENSACION"]) in ("nan", "None", ""):
+                                    df_banco.at[idx2, "COMPENSACION"] = ""  
                     st.session_state.df_area_banco = df_banco
                     st.warning(f"⚠️ {len(no_encontradas)} cédula(s) no encontradas en clientes activos. Marcadas como 'NO EXISTE' en la tabla.")
 
