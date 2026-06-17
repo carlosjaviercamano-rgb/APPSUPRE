@@ -112,7 +112,7 @@ def _construir_cash_receipt(df, empresa):
             "detalle":                     row.get("DETALLE", ""),
             "codigoTipoDni":               "CC",
             "dni":                         str(cedula).strip(),
-            "factura":                     row.get("NUM_FACTURA", ""),
+            "factura":                     _factura(row.get("NUM_FACTURA", "")),
             "valorPago":                   valor_pago,
             "aplicaInteresMoratorio":      1,
             "aplicaDescuentoProntoPago":   1,
@@ -247,6 +247,19 @@ def _escribir_hoja(ws, titulo, df):
 # ══════════════════════════════════════════════════════════════════════════
 # UTILIDADES
 # ══════════════════════════════════════════════════════════════════════════
+
+def _factura(val):
+    """Formatea factura sin decimales .0"""
+    if not val or str(val).strip() == "" or str(val) == "nan":
+        return ""
+    try:
+        f = float(str(val))
+        if f == int(f):
+            return str(int(f))
+        return str(val)
+    except Exception:
+        return str(val).strip()
+
 
 def _num(val):
     """Convierte a float seguro."""
