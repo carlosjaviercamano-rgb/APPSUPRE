@@ -17,8 +17,8 @@ EMPRESAS = {
 METODO_PAGO = {
     "Movicap":       "0041",
     "TuCredito":     "0041",
-    "Suprecreditos": "0040",
-    "Suprecartera":  "0040",
+    "Suprecreditos": "0041",
+    "Suprecartera":  "0041",
 }
 
 
