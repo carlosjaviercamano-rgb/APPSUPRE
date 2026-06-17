@@ -559,7 +559,8 @@ def render_generar_archivos():
                 try:
                     resultado = crear_compensaciones(
                         st.session_state.df_area_banco,
-                        st.session_state.config
+                        st.session_state.config,
+                        st.session_state.tipo_pago
                     )
                     st.success(f"✅ {resultado}")
                 except Exception as e:
