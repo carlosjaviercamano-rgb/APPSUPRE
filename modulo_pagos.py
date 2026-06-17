@@ -268,14 +268,40 @@ def render_tabla_pagos():
 
     # ── Selector de fecha (solo para RECAUDOS) ───────────────────────────
     if st.session_state.tipo_pago == "recaudos":
-        st.markdown("**📅 Fecha de trabajo**")
-        fecha = st.date_input(
-            "Selecciona la fecha a filtrar",
-            key="fecha_recaudo_input",
-            label_visibility="collapsed"
-        )
-        st.session_state.fecha_recaudo = fecha
-        st.caption(f"Se filtrarán registros con fecha: **{fecha.strftime('%d/%m/%Y')}**")
+        st.markdown("**📅 Fechas de trabajo** (máximo 5 fechas)")
+        st.caption("Útil para fines de semana o días acumulados.")
+
+        if "fechas_recaudo" not in st.session_state:
+            st.session_state.fechas_recaudo = [None]
+
+        # Agregar / quitar fechas
+        col_add, col_del = st.columns([1, 1])
+        with col_add:
+            if len(st.session_state.fechas_recaudo) < 5:
+                if st.button("➕ Agregar fecha", key="add_fecha"):
+                    st.session_state.fechas_recaudo.append(None)
+                    st.rerun()
+        with col_del:
+            if len(st.session_state.fechas_recaudo) > 1:
+                if st.button("➖ Quitar fecha", key="del_fecha"):
+                    st.session_state.fechas_recaudo.pop()
+                    st.rerun()
+
+        fechas_cols = st.columns(len(st.session_state.fechas_recaudo))
+        for i, col in enumerate(fechas_cols):
+            with col:
+                from datetime import date
+                val = st.session_state.fechas_recaudo[i] or date.today()
+                fecha_sel = st.date_input(
+                    f"Fecha {i+1}",
+                    value=val,
+                    key=f"fecha_recaudo_{i}"
+                )
+                st.session_state.fechas_recaudo[i] = fecha_sel
+
+        fechas_validas = [f for f in st.session_state.fechas_recaudo if f is not None]
+        fechas_str = ", ".join(f.strftime("%d/%m/%Y") for f in fechas_validas)
+        st.caption(f"Fechas seleccionadas: **{fechas_str}**")
         st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Botón de extracción ──────────────────────────────────────────────
@@ -289,9 +315,10 @@ def render_tabla_pagos():
                         st.session_state.archivo_corresponsal
                     )
                 else:
+                    fechas_sel = [f for f in st.session_state.get("fechas_recaudo", [None]) if f is not None]
                     df, resumen = extraer_pagos_recaudos(
                         st.session_state.archivo_libro,
-                        st.session_state.fecha_recaudo
+                        fechas_sel
                     )
                 st.session_state.df_area_banco = df
                 st.success(f"✅ Extracción completada. {resumen}")
@@ -447,13 +474,38 @@ def render_alistar_informacion():
         df = st.session_state.df_sheet1
         st.markdown("---")
 
+        # Cuadre de control
+        df_banco      = st.session_state.df_area_banco
+        total_extraido = pd.to_numeric(df_banco["VALOR"], errors="coerce").sum() if df_banco is not None and "VALOR" in df_banco.columns else 0
+
+        # Total alistado (Sheet1)
+        total_alistado = pd.to_numeric(df["CUOTA"], errors="coerce").sum() if "CUOTA" in df.columns else 0
+
+        # Total no encontrado (filas con RECIBOS = "NO EXISTE")
+        total_no_encontrado = 0
+        if df_banco is not None and "RECIBOS" in df_banco.columns and "VALOR" in df_banco.columns:
+            mask_no = df_banco["RECIBOS"].astype(str).str.strip() == "NO EXISTE"
+            total_no_encontrado = pd.to_numeric(df_banco.loc[mask_no, "VALOR"], errors="coerce").sum()
+
+        diferencia = total_extraido - total_alistado - total_no_encontrado
+
+        st.markdown("#### 📊 Cuadre de Control")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total extraído",       f"${total_extraido:,.0f}")
+        c2.metric("✅ Alistado",           f"${total_alistado:,.0f}")
+        c3.metric("❌ No encontrado",      f"${total_no_encontrado:,.0f}")
+        if abs(diferencia) < 1:
+            c4.metric("Diferencia", "$0", delta="✅ Cuadra", delta_color="normal")
+        else:
+            c4.metric("Diferencia", f"${diferencia:,.0f}", delta="⚠️ Revisar", delta_color="inverse")
+
+        st.markdown("---")
         c1, c2, c3 = st.columns(3)
-        c1.metric("Registros", len(df))
-        if "CUOTA" in df.columns:
-            total = pd.to_numeric(df["CUOTA"], errors="coerce").sum()
-            c2.metric("Total cuotas", f"${total:,.0f}")
+        c1.metric("Registros alistados", len(df))
         if "COMPANY" in df.columns:
-            c3.metric("Empresas", df["COMPANY"].nunique())
+            c2.metric("Empresas", df["COMPANY"].nunique())
+        if "CUOTA" in df.columns:
+            c3.metric("Total cuotas", f"${total_alistado:,.0f}")
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.data_editor(
