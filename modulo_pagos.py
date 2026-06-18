@@ -683,24 +683,24 @@ def render_generar_archivos():
     if planos:
         import zipfile as zf
         import io as _io
-        from datetime import datetime as _dt
 
         st.markdown("---")
         st.markdown("#### 📥 Descargar planos generados:")
 
-        # Crear ZIP en memoria con todos los archivos
-        zip_buf = _io.BytesIO()
-        with zf.ZipFile(zip_buf, "w", zf.ZIP_DEFLATED) as zfile:
-            for arch in planos:
-                zfile.writestr(arch["nombre"], bytes(arch["bytes"]))
-        zip_buf.seek(0)
-
-        zip_nombre = f"PLANOS_{_dt.now().strftime('%d_%m_%Y_%H_%M_%S')}.zip"
+        # Guardar ZIP en sesión para que el nombre no cambie en cada rerun
+        if "planos_zip" not in st.session_state or st.session_state.get("planos_zip_count") != len(planos):
+            zip_buf = _io.BytesIO()
+            with zf.ZipFile(zip_buf, "w", zf.ZIP_DEFLATED) as zfile:
+                for arch in planos:
+                    zfile.writestr(arch["nombre"], bytes(arch["bytes"]))
+            st.session_state["planos_zip"] = zip_buf.getvalue()
+            st.session_state["planos_zip_count"] = len(planos)
+            st.session_state["planos_zip_nombre"] = f"PLANOS_{planos[0]['nombre'].split('_')[2]}.zip"
 
         st.download_button(
             label=f"⬇️  Descargar todos los planos ({len(planos)} archivos) — ZIP",
-            data=zip_buf.getvalue(),
-            file_name=zip_nombre,
+            data=st.session_state["planos_zip"],
+            file_name=st.session_state["planos_zip_nombre"],
             mime="application/zip",
             key="dl_zip_planos",
             type="primary",
