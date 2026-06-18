@@ -1,6 +1,10 @@
 import streamlit as st
 import json
 import os
+import yaml
+import streamlit_authenticator as stauth
+from yaml.loader import SafeLoader
+
 
 # ─── Configuración de página ───────────────────────────────────────────────
 st.set_page_config(
@@ -154,6 +158,23 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
+# ─── Autenticación ────────────────────────────────────────────────────────
+USERS_PATH = os.path.join(os.path.dirname(__file__), 'users.yaml')
+authenticator = stauth.Authenticate(
+    USERS_PATH,
+    cookie_name='supre_auth',
+    cookie_key='supre_financiero_2026',
+    cookie_expiry_days=1
+)
+authenticator.login(location='main')
+if st.session_state.get('authentication_status') is False:
+    st.error('❌ Usuario o contraseña incorrectos.')
+    st.stop()
+elif st.session_state.get('authentication_status') is None:
+    st.warning('☝️ Ingresa tus credenciales para continuar.')
+    st.stop()
+
 # ─── Ruta del archivo de configuración ────────────────────────────────────
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 
@@ -194,6 +215,9 @@ with st.sidebar:
         <p>Herramienta de gestión bancaria</p>
     </div>
     """, unsafe_allow_html=True)
+    st.caption(f"👤 {st.session_state.get('name', '')}")
+    authenticator.logout('🚪 Cerrar sesión', location='sidebar')
+    st.markdown("---")
 
     def menu_item(key, icon, label, badge=None, badge_class=""):
         active = "active" if st.session_state.modulo == key else ""
