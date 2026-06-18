@@ -662,6 +662,8 @@ def render_generar_archivos():
         st.markdown("#### 📄 Planos por empresa")
         st.caption("Genera CashReceipt, Services y PaymentMethod para cada empresa.")
         if st.button("📄  Crear Planos", type="primary", use_container_width=True, key="btn_planos"):
+            # Limpiar planos anteriores
+            st.session_state["planos_generados"] = []
             from generar_planos import crear_planos
             with st.spinner("Generando planos..."):
                 try:
@@ -675,16 +677,21 @@ def render_generar_archivos():
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
 
-        # Mostrar botones de descarga persistentes
-        if st.session_state.get("planos_generados"):
-            st.markdown("#### 📥 Descargar planos:")
-            for arch in st.session_state["planos_generados"]:
+    # ── Botones de descarga SIEMPRE visibles mientras existan en sesión ──
+    if st.session_state.get("planos_generados"):
+        st.markdown("---")
+        st.markdown("#### 📥 Descargar planos generados:")
+        st.caption("Los archivos permanecen disponibles hasta que generes nuevos planos o recargues la página.")
+        cols = st.columns(len(st.session_state["planos_generados"]))
+        for i, arch in enumerate(st.session_state["planos_generados"]):
+            with cols[i]:
                 st.download_button(
-                    label=f"⬇️  {arch['empresa']}",
-                    data=arch["buffer"],
+                    label=f"⬇️ {arch['empresa']}",
+                    data=arch["bytes"],
                     file_name=arch["nombre"],
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key=f"dl_plano_{arch['empresa']}"
+                    key=f"dl_plano_{arch['empresa']}_{i}",
+                    use_container_width=True
                 )
 
     with col2:
