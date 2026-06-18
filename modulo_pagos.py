@@ -108,14 +108,15 @@ COLUMNAS_AREA_BANCO = [
 def init_estado():
     """Inicializa variables de sesión del módulo"""
     defaults = {
-        "tipo_pago": None,          # "bancarios" | "recaudos"
+        "tipo_pago": None,
         "fecha_recaudo": None,
-        "df_area_banco": None,      # DataFrame tabla interactiva
-        "df_sheet1": None,          # DataFrame cruzado (alistar información)
+        "df_area_banco": None,
+        "df_sheet1": None,
         "archivo_libro": None,
         "archivo_clientes": None,
         "archivo_corresponsal": None,
-        "paso_actual": 1,           # 1=carga, 2=extracción, 3=alistar, 4=planos/comp
+        "paso_actual": 1,
+        "planos_generados": [],     # Lista de dicts {nombre, bytes, empresa}
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -678,21 +679,20 @@ def render_generar_archivos():
                     st.error(f"❌ Error: {str(e)}")
 
     # ── Botones de descarga SIEMPRE visibles mientras existan en sesión ──
-    if st.session_state.get("planos_generados"):
+    planos = st.session_state.get("planos_generados", [])
+    if planos:
         st.markdown("---")
         st.markdown("#### 📥 Descargar planos generados:")
-        st.caption("Los archivos permanecen disponibles hasta que generes nuevos planos o recargues la página.")
-        cols = st.columns(len(st.session_state["planos_generados"]))
-        for i, arch in enumerate(st.session_state["planos_generados"]):
-            with cols[i]:
-                st.download_button(
-                    label=f"⬇️ {arch['empresa']}",
-                    data=arch["bytes"],
-                    file_name=arch["nombre"],
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key=f"dl_plano_{arch['empresa']}_{i}",
-                    use_container_width=True
-                )
+        st.caption("Descarga cada archivo — los botones permanecen hasta que recargues la página.")
+        for i, arch in enumerate(planos):
+            st.download_button(
+                label=f"⬇️  {arch['empresa']}",
+                data=bytes(arch["bytes"]),
+                file_name=arch["nombre"],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"dl_plano_{i}",
+                use_container_width=True
+            )
 
     with col2:
         st.markdown("#### 📊 Compensaciones por fecha")
