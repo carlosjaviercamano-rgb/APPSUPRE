@@ -678,21 +678,34 @@ def render_generar_archivos():
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
 
-    # ── Botones de descarga SIEMPRE visibles mientras existan en sesión ──
+    # ── Botón único de descarga ZIP ──────────────────────────────────────
     planos = st.session_state.get("planos_generados", [])
     if planos:
+        import zipfile as zf
+        import io as _io
+        from datetime import datetime as _dt
+
         st.markdown("---")
         st.markdown("#### 📥 Descargar planos generados:")
-        st.caption("Descarga cada archivo — los botones permanecen hasta que recargues la página.")
-        for i, arch in enumerate(planos):
-            st.download_button(
-                label=f"⬇️  {arch['empresa']}",
-                data=bytes(arch["bytes"]),
-                file_name=arch["nombre"],
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"dl_plano_{i}",
-                use_container_width=True
-            )
+
+        # Crear ZIP en memoria con todos los archivos
+        zip_buf = _io.BytesIO()
+        with zf.ZipFile(zip_buf, "w", zf.ZIP_DEFLATED) as zfile:
+            for arch in planos:
+                zfile.writestr(arch["nombre"], bytes(arch["bytes"]))
+        zip_buf.seek(0)
+
+        zip_nombre = f"PLANOS_{_dt.now().strftime('%d_%m_%Y_%H_%M_%S')}.zip"
+
+        st.download_button(
+            label=f"⬇️  Descargar todos los planos ({len(planos)} archivos) — ZIP",
+            data=zip_buf.getvalue(),
+            file_name=zip_nombre,
+            mime="application/zip",
+            key="dl_zip_planos",
+            type="primary",
+            use_container_width=True
+        )
 
     with col2:
         st.markdown("#### 📊 Compensaciones por fecha")
