@@ -144,6 +144,29 @@ st.markdown("""
     #MainMenu, footer, header { visibility: hidden; }
     [data-testid="stDecoration"] { display: none; }
 
+    /* Login centrado y pequeño */
+    [data-testid="stForm"] {
+        max-width: 420px !important;
+        margin: 8vh auto !important;
+        padding: 2rem !important;
+        border-radius: 14px !important;
+        border: 1px solid #2d3548 !important;
+        background: #1a1f2e !important;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.4) !important;
+    }
+    [data-testid="stForm"] label {
+        color: #94a3b8 !important;
+        font-size: 0.85rem !important;
+    }
+    [data-testid="stForm"] button {
+        width: 100% !important;
+        background: #1e40af !important;
+        color: white !important;
+        border-radius: 8px !important;
+        margin-top: 0.5rem !important;
+        font-weight: 600 !important;
+    }
+
     /* Boton colapsar sidebar siempre visible */
     [data-testid="collapsedControl"] {
         display: flex !important;
