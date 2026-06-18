@@ -9,7 +9,7 @@ import streamlit as st
 EMPRESAS = {
     "Movicap":       "ruta_movicap",
     "Suprecartera":  "ruta_suprecartera",
-    "Suprecreditos": "ruta_suprecredito",
+    "Suprecredito": "ruta_suprecredito",
     "TuCredito":     "ruta_tucredito",
 }
 
@@ -17,7 +17,7 @@ EMPRESAS = {
 METODO_PAGO = {
     "Movicap":       "0041",
     "TuCredito":     "0041",
-    "Suprecreditos": "0041",
+    "Suprecredito": "0041",
     "Suprecartera":  "0041",
 }
 
