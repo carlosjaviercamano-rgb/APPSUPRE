@@ -1,0 +1,27 @@
+credentials:
+  usernames:
+    ccamano:
+      name: Carlos Camaño
+      password: "$2b$12$2nGviMw3EnolrKx2GFhLGOnFGpPm1he6zJmZeqTJx7X8EIcJBmIo6"
+      role: admin
+    mvergara:
+      name: Mariam Vergara
+      password: "$2b$12$8LtoDQGmJ8GcGq7yFl.Bi.F57T5U.Msm6pxHkMCx3.q8McmgLJYk."
+      role: user
+    lhincapie:
+      name: Leidy Hincapié
+      password: "$2b$12$kfW3sbDgZWAZr32ThUthPu5o2RT50/iAZ4TWP6zLBNQ.rKQ811aeK"
+      role: user
+    ddiaz:
+      name: David Diaz
+      password: "$2b$12$uQ7SJaw54ZrUvQGuiOtFbOllT/wlCs4oX0DvgdjC9vXtxa68TPR9y"
+      role: user
+    smontes:
+      name: Sandra Montes
+      password: "$2b$12$Ztqa51cs9DWxEnMNsgYem.QQSluHvEqBwV6hhG10nnSy50/FgMEcq"
+      role: user
+
+cookie:
+  expiry_days: 1
+  key: supre_financiero_2026
+  name: supre_auth
