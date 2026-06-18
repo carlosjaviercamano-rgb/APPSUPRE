@@ -158,13 +158,23 @@ st.markdown("""
         color: #94a3b8 !important;
         font-size: 0.85rem !important;
     }
-    [data-testid="stForm"] button {
+    [data-testid="stForm"] button[kind="secondaryFormSubmit"],
+    [data-testid="stForm"] button[kind="formSubmit"] {
         width: 100% !important;
         background: #1e40af !important;
         color: white !important;
         border-radius: 8px !important;
         margin-top: 0.5rem !important;
         font-weight: 600 !important;
+    }
+    /* Ojito contraseña pequeño */
+    [data-testid="stForm"] [data-testid="stTextInputRootElement"] button {
+        width: auto !important;
+        background: transparent !important;
+        border: none !important;
+        padding: 0 0.4rem !important;
+        margin: 0 !important;
+        color: #94a3b8 !important;
     }
 
     /* Boton colapsar sidebar siempre visible */
