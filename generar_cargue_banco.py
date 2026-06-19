@@ -104,20 +104,19 @@ def _generar_excel(df):
         fecha_str = _fecha_str(row.get("FECHA"))
         detalle = f"{entidad} {fecha_str}".strip()
 
+        val_str = f"{valor:.2f}".replace('.', ',')
         _escribir_fila(ws, fila_excel, [
             consecutivo,
             CODIGO_CENTRO if nit else "",
             nit,
             "NIT" if nit else "",
             cuenta,
-            valor,
+            val_str,
             "",      # factura vacía en débito
             None,    # fechaVencimiento vacía en débito
             None, None, None,
             detalle
         ])
-        # Formato número con 2 decimales y coma
-        ws.cell(row=fila_excel, column=6).number_format = '#,##0.00'
 
         consecutivo += 1
         fila_excel  += 1
