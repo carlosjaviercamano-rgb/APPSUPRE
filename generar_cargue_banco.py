@@ -122,12 +122,14 @@ def _generar_excel(df):
 
     # ── CRÉDITOS ─────────────────────────────────────────────────────────
     for _, row in df.iterrows():
-        entidad = str(row.get("ENTIDAD", "")).upper().strip()
-        config  = ENTIDADES_CONFIG.get(entidad, {})
-        nit     = config.get("nit", "")
-        valor   = _num(row.get("VALOR"))
-        fra     = _factura(row.get("FRA"))
-        fecha   = _fecha_dt(row.get("FECHA"))
+        entidad   = str(row.get("ENTIDAD", "")).upper().strip()
+        config    = ENTIDADES_CONFIG.get(entidad, {})
+        nit       = config.get("nit", "")
+        valor     = _num(row.get("VALOR"))
+        fra       = _factura(row.get("FRA"))
+        fecha     = _fecha_dt(row.get("FECHA"))
+        fecha_str = _fecha_str(row.get("FECHA"))
+        detalle   = f"{entidad} {fecha_str}".strip()
 
         _escribir_fila(ws, fila_excel, [
             consecutivo,
@@ -135,11 +137,11 @@ def _generar_excel(df):
             nit,
             "NIT" if nit else "",
             CUENTA_CREDITO,
-            -abs(valor) if valor else "",
-            fra,     # factura en crédito
-            fecha,   # fechaVencimiento en crédito
+            -abs(valor) if valor else 0,
+            fra,
+            fecha,
             None, None, None,
-            ""
+            detalle
         ])
 
         # Formato fecha
