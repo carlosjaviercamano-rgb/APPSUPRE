@@ -14,6 +14,12 @@ HOJAS_RECAUDOS = [
     "RECORD"
 ]
 
+# Entidades que viven en cada hoja
+ENTIDADES_POR_HOJA = {
+    "OCCIDENTE SUPRECREDITO 2026": ["EFECTY", "PSE", "EFECTY-BANCO DE BOGOTA"],
+    "RECORD": ["RECORD"]
+}
+
 # ─── Mapeo de columnas del libro fuente ────────────────────────────────────
 # El libro tiene: A=FECHAINGRESO, B=ENTIDAD, C=NOMBRE, D=CEDULA,
 #                 E=DOCUMENTODEAPROBACION, F=TIPODETRANSACIÓN,
@@ -157,20 +163,30 @@ def extraer_pagos_bancarios(archivo, archivo_corresponsal):
     return df_final, resumen
 
 
-def extraer_pagos_recaudos(archivo, fechas_filtro):
+def extraer_pagos_recaudos(archivo, fechas_filtro, entidades_filtro=None):
     """
     Extrae datos de las hojas de PAGOS POR RECAUDOS.
-    Filtro: columna A (FECHAINGRESO) en lista de fechas seleccionadas.
-    FECHA_DOCUMENTO = la misma fecha de cada registro (no la más reciente).
+    Filtro 1: columna A (FECHA) en lista de fechas seleccionadas.
+    Filtro 2: columna B (ENTIDAD) en lista de entidades seleccionadas.
+    FECHA_DOCUMENTO = la misma fecha de cada registro.
     """
     if not fechas_filtro:
         raise ValueError("Debes seleccionar al menos una fecha para los Pagos por Recaudos.")
 
-    # Convertir fechas a timestamps normalizados
     fechas_dt = [pd.Timestamp(f).normalize() for f in fechas_filtro]
     frames = []
 
-    for nombre_hoja in HOJAS_RECAUDOS:
+    # Determinar qué hojas procesar según entidades seleccionadas
+    if entidades_filtro:
+        hojas_a_procesar = []
+        for hoja, entidades_hoja in ENTIDADES_POR_HOJA.items():
+            # Incluir hoja si al menos una entidad seleccionada pertenece a ella
+            if any(e in entidades_hoja for e in entidades_filtro):
+                hojas_a_procesar.append(hoja)
+    else:
+        hojas_a_procesar = HOJAS_RECAUDOS
+
+    for nombre_hoja in hojas_a_procesar:
         df = leer_hoja(archivo, nombre_hoja)
         if df is None or df.empty:
             continue
@@ -184,9 +200,25 @@ def extraer_pagos_recaudos(archivo, fechas_filtro):
         if df.shape[1] > COL_RECIBO:  rename[f"COL_{COL_RECIBO}"]  = "RECIBO_SRC"
         df = df.rename(columns=rename)
 
-        # ── Filtro por múltiples fechas ─────────────────────────────────
+        # ── Filtro 1: por múltiples fechas ──────────────────────────────
         df["FECHA"] = pd.to_datetime(df["FECHA"], errors="coerce")
         df = df[df["FECHA"].dt.normalize().isin(fechas_dt)].copy()
+
+        if df.empty:
+            continue
+
+        # ── Filtro 2: por entidad (columna B) ────────────────────────────
+        if entidades_filtro:
+            entidades_hoja = ENTIDADES_POR_HOJA.get(nombre_hoja, [])
+            entidades_aplicar = [e for e in entidades_filtro if e in entidades_hoja]
+            if entidades_aplicar and "ENTIDAD" in df.rename(columns={f"COL_{COL_ENTIDAD}": "ENTIDAD"}).columns:
+                df_temp = df.copy()
+                if f"COL_{COL_ENTIDAD}" in df_temp.columns:
+                    mask = df_temp[f"COL_{COL_ENTIDAD}"].astype(str).str.upper().str.strip().isin(
+                        [e.upper() for e in entidades_aplicar]
+                    )
+                    df_temp = df_temp[mask].copy()
+                df = df_temp
 
         if df.empty:
             continue
@@ -214,9 +246,15 @@ def extraer_pagos_recaudos(archivo, fechas_filtro):
         fechas_str = ", ".join(f.strftime("%d/%m/%Y") for f in fechas_filtro)
         raise ValueError(f"No se encontraron registros para las fechas {fechas_str} en las hojas de Recaudos.")
 
+    if not frames:
+        fechas_str = ", ".join(f.strftime("%d/%m/%Y") for f in fechas_filtro)
+        ent_str = ", ".join(entidades_filtro) if entidades_filtro else "todas"
+        raise ValueError(f"No se encontraron registros para las fechas {fechas_str} y entidades: {ent_str}.")
+
     df_final = pd.concat(frames, ignore_index=True)
     fechas_str = ", ".join(f.strftime("%d/%m/%Y") for f in fechas_filtro)
-    resumen = f"{len(df_final)} registros extraídos para las fechas: {fechas_str}."
+    ent_str = ", ".join(entidades_filtro) if entidades_filtro else "todas las entidades"
+    resumen = f"{len(df_final)} registros extraídos. Fechas: {fechas_str}. Entidades: {ent_str}."
     return df_final, resumen
 
 
