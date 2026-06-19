@@ -296,78 +296,55 @@ def extraer_cargue_banco(archivo, fechas_filtro):
     frames = []
 
     # ── BANCOLOMBIA ─────────────────────────────────────────────────────
+    # Columnas: A=0(FECHA) B=1(ENTIDAD) H=7(VALOR) I=8(FRA)
     df_banc = leer_hoja(archivo, "BANCOLOMBIA SUPRECREDITO")
     if df_banc is not None and not df_banc.empty:
-        # Renombrar columnas relevantes
-        cols = {}
-        if df_banc.shape[1] > 0:  cols["COL_0"] = "FECHA"
-        if df_banc.shape[1] > 1:  cols["COL_1"] = "ENTIDAD"
-        if df_banc.shape[1] > 2:  cols["COL_2"] = "CEDULA"
-        if df_banc.shape[1] > 4:  cols["COL_4"] = "FRA"
-        if df_banc.shape[1] > 7:  cols["COL_7"] = "VALOR_H"
-        df_banc = df_banc.rename(columns=cols)
+        df_banc.columns = [f"COL_{i}" for i in range(df_banc.shape[1])]
 
-        # Filtro 1: fecha
-        df_banc["FECHA"] = pd.to_datetime(df_banc["FECHA"], errors="coerce")
-        df_banc = df_banc[df_banc["FECHA"].dt.normalize().isin(fechas_dt)].copy()
+        # Filtro 1: fecha columna A
+        df_banc["COL_0"] = pd.to_datetime(df_banc["COL_0"], errors="coerce")
+        df_banc = df_banc[df_banc["COL_0"].dt.normalize().isin(fechas_dt)].copy()
 
         # Filtro 2: columna H > 0
-        if "VALOR_H" in df_banc.columns:
-            df_banc["VALOR_H"] = pd.to_numeric(df_banc["VALOR_H"], errors="coerce").fillna(0)
-            df_banc = df_banc[df_banc["VALOR_H"] > 0].copy()
+        if df_banc.shape[1] > 7:
+            df_banc["COL_7"] = pd.to_numeric(df_banc["COL_7"], errors="coerce").fillna(0)
+            df_banc = df_banc[df_banc["COL_7"] > 0].copy()
 
         if not df_banc.empty:
             df_out = pd.DataFrame()
-            df_out["FECHA"]   = df_banc["FECHA"]
-            df_out["ENTIDAD"] = "BANCOLOMBIA"
-            df_out["VALOR"]   = df_banc["VALOR_H"]
-            df_out["FRA"]     = df_banc["FRA"] if "FRA" in df_banc.columns else None
+            df_out["FECHA"]   = df_banc["COL_0"]
+            df_out["ENTIDAD"] = df_banc["COL_1"] if df_banc.shape[1] > 1 else "BANCOLOMBIA"
+            df_out["VALOR"]   = df_banc["COL_7"] if df_banc.shape[1] > 7 else 0
+            df_out["FRA"]     = df_banc["COL_8"] if df_banc.shape[1] > 8 else None
             frames.append(df_out)
 
     # ── DAVIVIENDA ──────────────────────────────────────────────────────
+    # Columnas: A=0(FECHA) B=1(ENTIDAD) C=2(CEDULA) G=6(CONCEPTO) H=7(VALOR) I=8(FRA)
     df_davi = leer_hoja(archivo, "DAVIVIENDA SUPRECREDITO")
     if df_davi is not None and not df_davi.empty:
-        cols2 = {}
-        if df_davi.shape[1] > 0:  cols2["COL_0"] = "FECHA"
-        if df_davi.shape[1] > 1:  cols2["COL_1"] = "ENTIDAD"
-        if df_davi.shape[1] > 2:  cols2["COL_2"] = "CEDULA"
-        if df_davi.shape[1] > 4:  cols2["COL_4"] = "FRA"
-        if df_davi.shape[1] > 6:  cols2["COL_6"] = "CONCEPTO_G"
-        df_davi = df_davi.rename(columns=cols2)
+        df_davi.columns = [f"COL_{i}" for i in range(df_davi.shape[1])]
 
-        # Filtro 1: fecha
-        df_davi["FECHA"] = pd.to_datetime(df_davi["FECHA"], errors="coerce")
-        df_davi = df_davi[df_davi["FECHA"].dt.normalize().isin(fechas_dt)].copy()
+        # Filtro 1: fecha columna A
+        df_davi["COL_0"] = pd.to_datetime(df_davi["COL_0"], errors="coerce")
+        df_davi = df_davi[df_davi["COL_0"].dt.normalize().isin(fechas_dt)].copy()
 
         # Filtro 2: columna G no en exclusiones
-        if "CONCEPTO_G" in df_davi.columns:
+        if df_davi.shape[1] > 6:
             excluir_upper = [e.upper().strip() for e in EXCLUIR_DAVIVIENDA]
-            mask_excluir = df_davi["CONCEPTO_G"].astype(str).str.upper().str.strip().isin(excluir_upper)
+            mask_excluir = df_davi["COL_6"].astype(str).str.upper().str.strip().isin(excluir_upper)
             df_davi = df_davi[~mask_excluir].copy()
 
         # Filtro 3: columna C vacía
-        if "CEDULA" in df_davi.columns:
-            mask_vacia = df_davi["CEDULA"].isna() | (df_davi["CEDULA"].astype(str).str.strip().isin(["", "nan"]))
+        if df_davi.shape[1] > 2:
+            mask_vacia = df_davi["COL_2"].isna() | (df_davi["COL_2"].astype(str).str.strip().isin(["", "nan"]))
             df_davi = df_davi[mask_vacia].copy()
 
         if not df_davi.empty:
-            # Valor: buscar columna con valores numéricos (col H o la que corresponda)
-            val_col = None
-            for c in df_davi.columns:
-                if c not in ["FECHA", "ENTIDAD", "CEDULA", "FRA", "CONCEPTO_G"]:
-                    try:
-                        nums = pd.to_numeric(df_davi[c], errors="coerce")
-                        if nums.notna().sum() > 0 and nums.max() > 0:
-                            val_col = c
-                            break
-                    except Exception:
-                        pass
-
             df_out2 = pd.DataFrame()
-            df_out2["FECHA"]   = df_davi["FECHA"]
-            df_out2["ENTIDAD"] = "DAVIVIENDA"
-            df_out2["VALOR"]   = pd.to_numeric(df_davi[val_col], errors="coerce") if val_col else 0
-            df_out2["FRA"]     = df_davi["FRA"] if "FRA" in df_davi.columns else None
+            df_out2["FECHA"]   = df_davi["COL_0"]
+            df_out2["ENTIDAD"] = df_davi["COL_1"] if df_davi.shape[1] > 1 else "DAVIVIENDA"
+            df_out2["VALOR"]   = pd.to_numeric(df_davi["COL_7"], errors="coerce") if df_davi.shape[1] > 7 else 0
+            df_out2["FRA"]     = df_davi["COL_8"] if df_davi.shape[1] > 8 else None
             frames.append(df_out2)
 
     if not frames:
