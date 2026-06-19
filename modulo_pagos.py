@@ -332,6 +332,64 @@ def render_tabla_pagos():
         st.caption(f"Fechas seleccionadas: **{fechas_str}**")
         st.markdown("<br>", unsafe_allow_html=True)
 
+        # ── Filtro por entidad recaudadora ───────────────────────────────
+        st.markdown("**🏢 Filtro por entidad recaudadora**")
+        tipo_entidad = st.radio(
+            "Tipo de filtro",
+            ["Todas", "Elegir por entidad"],
+            horizontal=True,
+            key="tipo_filtro_entidad",
+            label_visibility="collapsed"
+        )
+        st.session_state["filtro_entidad_tipo"] = tipo_entidad
+
+        ENTIDADES_DISPONIBLES = [
+            "EFECTY",
+            "PSE",
+            "EFECTY-BANCO DE BOGOTA",
+            "RECORD"
+        ]
+
+        if tipo_entidad == "Elegir por entidad":
+            if "entidades_recaudo" not in st.session_state:
+                st.session_state.entidades_recaudo = [None]
+
+            col_add2, col_del2 = st.columns([1, 1])
+            with col_add2:
+                if len(st.session_state.entidades_recaudo) < 3:
+                    if st.button("➕ Agregar entidad", key="add_entidad"):
+                        st.session_state.entidades_recaudo.append(None)
+                        st.rerun()
+            with col_del2:
+                if len(st.session_state.entidades_recaudo) > 1:
+                    if st.button("➖ Quitar entidad", key="del_entidad"):
+                        st.session_state.entidades_recaudo.pop()
+                        st.rerun()
+
+            ent_cols = st.columns(len(st.session_state.entidades_recaudo))
+            for i, col in enumerate(ent_cols):
+                with col:
+                    # Opciones disponibles excluyendo las ya seleccionadas
+                    ya_sel = [e for j, e in enumerate(st.session_state.entidades_recaudo) if j != i and e]
+                    opciones = [e for e in ENTIDADES_DISPONIBLES if e not in ya_sel]
+                    val_actual = st.session_state.entidades_recaudo[i]
+                    idx = opciones.index(val_actual) if val_actual in opciones else 0
+                    sel = st.selectbox(
+                        f"Entidad {i+1}",
+                        opciones,
+                        index=idx,
+                        key=f"entidad_sel_{i}"
+                    )
+                    st.session_state.entidades_recaudo[i] = sel
+
+            entidades_validas = [e for e in st.session_state.entidades_recaudo if e]
+            st.caption(f"Entidades seleccionadas: **{', '.join(entidades_validas)}**")
+        else:
+            st.session_state.entidades_recaudo = list(ENTIDADES_DISPONIBLES)
+            entidades_validas = list(ENTIDADES_DISPONIBLES)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
     # ── Botón de extracción ──────────────────────────────────────────────
     tipo_label = "Pagos Bancarios" if st.session_state.tipo_pago == "bancarios" else "Pagos por Recaudos"
     if st.button(f"⬇️  Extraer {tipo_label} del Libro de Banco", type="primary", use_container_width=True):
@@ -344,9 +402,11 @@ def render_tabla_pagos():
                     )
                 else:
                     fechas_sel = [f for f in st.session_state.get("fechas_recaudo", [None]) if f is not None]
+                    entidades_sel = st.session_state.get("entidades_recaudo", None)
                     df, resumen = extraer_pagos_recaudos(
                         st.session_state.archivo_libro,
-                        fechas_sel
+                        fechas_sel,
+                        entidades_sel
                     )
                 st.session_state.df_area_banco = df
                 st.success(f"✅ Extracción completada. {resumen}")
