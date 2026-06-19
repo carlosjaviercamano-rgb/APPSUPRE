@@ -65,20 +65,27 @@ def render_extraccion():
     st.caption(f"Fechas seleccionadas: **{fechas_str}**")
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Botón extracción ─────────────────────────────────────────────────
-    if st.button("⬇️  Extraer movimientos bancarios", type="primary", use_container_width=True):
-        with st.spinner("Extrayendo movimientos..."):
-            try:
-                df, resumen = extraer_cargue_banco(
-                    st.session_state.archivo_libro,
-                    fechas_validas
-                )
-                st.session_state["df_cargue_banco"] = df
-                st.success(f"✅ {resumen}")
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
-                import traceback
-                st.code(traceback.format_exc())
+    # ── Botones extracción y limpieza ───────────────────────────────────
+    col_ext, col_lim = st.columns([3, 1])
+    with col_lim:
+        if st.button("🔄  Limpiar", use_container_width=True, key="limpiar_cargue"):
+            st.session_state["df_cargue_banco"] = None
+            st.session_state["fechas_cargue"]   = [None]
+            st.rerun()
+    with col_ext:
+     if st.button("⬇️  Extraer movimientos bancarios", type="primary", use_container_width=True):
+            with st.spinner("Extrayendo movimientos..."):
+                try:
+                    df, resumen = extraer_cargue_banco(
+                        st.session_state.archivo_libro,
+                        fechas_validas
+                    )
+                    st.session_state["df_cargue_banco"] = df
+                    st.success(f"✅ {resumen}")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
 
     # ── Tabla interactiva ────────────────────────────────────────────────
     if st.session_state.get("df_cargue_banco") is not None:
