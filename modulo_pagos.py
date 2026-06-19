@@ -487,19 +487,41 @@ def _mostrar_reemplazo_cedulas():
 
     with st.form("form_reemplazo_cedulas"):
         reemplazos = {}
+
+        # Agrupar por cédula para mostrar total y cantidad de pagos
+        from collections import defaultdict
+        cedulas_agrupadas = defaultdict(list)
+        for item in no_encontradas:
+            cedulas_agrupadas[item["cedula"]].append(item)
+
         cols = st.columns(2)
-        for i, item in enumerate(no_encontradas):
+        for i, (cedula, items) in enumerate(cedulas_agrupadas.items()):
             with cols[i % 2]:
+                # Calcular total y cantidad de pagos
+                n_pagos = len(items)
+                df_banco = st.session_state.df_area_banco
+                total = 0
+                for item in items:
+                    try:
+                        val = df_banco.at[item["idx"], "VALOR"]
+                        total += float(str(val).replace(",","") or 0)
+                    except Exception:
+                        pass
+
+                pagos_str = f"{n_pagos} pago" if n_pagos == 1 else f"{n_pagos} pagos"
+                label = f"Cédula **{cedula}** | ${total:,.0f} | {pagos_str}"
+
                 nueva = st.text_input(
-                    f"Cédula **{item['cedula']}** → Reemplazar por:",
+                    label,
                     value="",
                     key=f"remp_{i}",
                     placeholder="Dejar vacío = NO EXISTE"
                 )
-                reemplazos[item["idx"]] = {
-                    "cedula_original": item["cedula"],
-                    "cedula_nueva":    nueva.strip()
-                }
+                for item in items:
+                    reemplazos[item["idx"]] = {
+                        "cedula_original": cedula,
+                        "cedula_nueva":    nueva.strip()
+                    }
 
         confirmar = st.form_submit_button(
             "✅ Confirmar y continuar alistamiento",
@@ -831,8 +853,17 @@ def render_generar_archivos():
                         df_banco.loc[mask, "COMPENSACION"] = consec.strip()
 
                 df_banco = df_banco.drop(columns=["FECHA_DOC_STR"])
+
+                # Marcar RECIBOS vacíos como APLICADO (mantener NO EXISTE)
+                mask_aplicado = (
+                    df_banco["RECIBOS"].isna() |
+                    (df_banco["RECIBOS"].astype(str).str.strip() == "") |
+                    (df_banco["RECIBOS"].astype(str).str.strip() == "None")
+                )
+                df_banco.loc[mask_aplicado, "RECIBOS"] = "APLICADO"
+
                 st.session_state.df_area_banco = df_banco
-                st.success("✅ Consecutivos aplicados correctamente a la tabla de pagos.")
+                st.success("✅ Consecutivos aplicados. Registros marcados como APLICADO en columna RECIBOS.")
 
     # ── Exportar tabla de pagos con consecutivos ─────────────────────────
     st.markdown("---")
