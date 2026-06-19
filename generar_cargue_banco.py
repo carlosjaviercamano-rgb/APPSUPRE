@@ -116,6 +116,8 @@ def _generar_excel(df):
             None, None, None,
             detalle
         ])
+        # Formato número con 2 decimales y coma
+        ws.cell(row=fila_excel, column=6).number_format = '#,##0.00'
 
         consecutivo += 1
         fila_excel  += 1
@@ -167,7 +169,7 @@ def _escribir_fila(ws, fila, valores):
 
 def _num(val):
     try:
-        return float(str(val).replace(",", "") or 0)
+        return round(float(str(val).replace(",", "") or 0), 2)
     except Exception:
         return 0.0
 
