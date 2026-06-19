@@ -266,3 +266,114 @@ def cargar_corresponsal(archivo):
         return set(cedulas)
     except Exception:
         return set()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# EXTRACCIÓN CARGUE BANCO
+# ══════════════════════════════════════════════════════════════════════════
+
+# Valores a excluir en DAVIVIENDA columna G
+EXCLUIR_DAVIVIENDA = [
+    "AVES MARIA", "Redeban BreB", "PORTAL PYMES",
+    "BANSUP ESTABLECIMIEN", "Compras y Pagos PSE",
+    "Multiabonos", "BTA PROCESOS ESP."
+]
+
+# Columnas del libro para cargue banco
+# BANCOLOMBIA: A=fecha, B=entidad, C=cedula, D=?, E=fra, F=?, G=?, H=valor
+# DAVIVIENDA:  A=fecha, B=entidad, C=cedula, D=?, E=fra, F=?, G=concepto
+
+def extraer_cargue_banco(archivo, fechas_filtro):
+    """
+    Extrae movimientos bancarios para Cargue Banco.
+    BANCOLOMBIA: filtro fecha col A + col H > 0
+    DAVIVIENDA:  filtro fecha col A + col G no en exclusiones + col C vacía
+    """
+    if not fechas_filtro:
+        raise ValueError("Debes seleccionar al menos una fecha.")
+
+    fechas_dt = [pd.Timestamp(f).normalize() for f in fechas_filtro]
+    frames = []
+
+    # ── BANCOLOMBIA ─────────────────────────────────────────────────────
+    df_banc = leer_hoja(archivo, "BANCOLOMBIA SUPRECREDITO")
+    if df_banc is not None and not df_banc.empty:
+        # Renombrar columnas relevantes
+        cols = {}
+        if df_banc.shape[1] > 0:  cols["COL_0"] = "FECHA"
+        if df_banc.shape[1] > 1:  cols["COL_1"] = "ENTIDAD"
+        if df_banc.shape[1] > 2:  cols["COL_2"] = "CEDULA"
+        if df_banc.shape[1] > 4:  cols["COL_4"] = "FRA"
+        if df_banc.shape[1] > 7:  cols["COL_7"] = "VALOR_H"
+        df_banc = df_banc.rename(columns=cols)
+
+        # Filtro 1: fecha
+        df_banc["FECHA"] = pd.to_datetime(df_banc["FECHA"], errors="coerce")
+        df_banc = df_banc[df_banc["FECHA"].dt.normalize().isin(fechas_dt)].copy()
+
+        # Filtro 2: columna H > 0
+        if "VALOR_H" in df_banc.columns:
+            df_banc["VALOR_H"] = pd.to_numeric(df_banc["VALOR_H"], errors="coerce").fillna(0)
+            df_banc = df_banc[df_banc["VALOR_H"] > 0].copy()
+
+        if not df_banc.empty:
+            df_out = pd.DataFrame()
+            df_out["FECHA"]   = df_banc["FECHA"]
+            df_out["ENTIDAD"] = "BANCOLOMBIA"
+            df_out["VALOR"]   = df_banc["VALOR_H"]
+            df_out["FRA"]     = df_banc["FRA"] if "FRA" in df_banc.columns else None
+            frames.append(df_out)
+
+    # ── DAVIVIENDA ──────────────────────────────────────────────────────
+    df_davi = leer_hoja(archivo, "DAVIVIENDA SUPRECREDITO")
+    if df_davi is not None and not df_davi.empty:
+        cols2 = {}
+        if df_davi.shape[1] > 0:  cols2["COL_0"] = "FECHA"
+        if df_davi.shape[1] > 1:  cols2["COL_1"] = "ENTIDAD"
+        if df_davi.shape[1] > 2:  cols2["COL_2"] = "CEDULA"
+        if df_davi.shape[1] > 4:  cols2["COL_4"] = "FRA"
+        if df_davi.shape[1] > 6:  cols2["COL_6"] = "CONCEPTO_G"
+        df_davi = df_davi.rename(columns=cols2)
+
+        # Filtro 1: fecha
+        df_davi["FECHA"] = pd.to_datetime(df_davi["FECHA"], errors="coerce")
+        df_davi = df_davi[df_davi["FECHA"].dt.normalize().isin(fechas_dt)].copy()
+
+        # Filtro 2: columna G no en exclusiones
+        if "CONCEPTO_G" in df_davi.columns:
+            excluir_upper = [e.upper().strip() for e in EXCLUIR_DAVIVIENDA]
+            mask_excluir = df_davi["CONCEPTO_G"].astype(str).str.upper().str.strip().isin(excluir_upper)
+            df_davi = df_davi[~mask_excluir].copy()
+
+        # Filtro 3: columna C vacía
+        if "CEDULA" in df_davi.columns:
+            mask_vacia = df_davi["CEDULA"].isna() | (df_davi["CEDULA"].astype(str).str.strip().isin(["", "nan"]))
+            df_davi = df_davi[mask_vacia].copy()
+
+        if not df_davi.empty:
+            # Valor: buscar columna con valores numéricos (col H o la que corresponda)
+            val_col = None
+            for c in df_davi.columns:
+                if c not in ["FECHA", "ENTIDAD", "CEDULA", "FRA", "CONCEPTO_G"]:
+                    try:
+                        nums = pd.to_numeric(df_davi[c], errors="coerce")
+                        if nums.notna().sum() > 0 and nums.max() > 0:
+                            val_col = c
+                            break
+                    except Exception:
+                        pass
+
+            df_out2 = pd.DataFrame()
+            df_out2["FECHA"]   = df_davi["FECHA"]
+            df_out2["ENTIDAD"] = "DAVIVIENDA"
+            df_out2["VALOR"]   = pd.to_numeric(df_davi[val_col], errors="coerce") if val_col else 0
+            df_out2["FRA"]     = df_davi["FRA"] if "FRA" in df_davi.columns else None
+            frames.append(df_out2)
+
+    if not frames:
+        fechas_str = ", ".join(f.strftime("%d/%m/%Y") for f in fechas_filtro)
+        raise ValueError(f"No se encontraron movimientos para las fechas: {fechas_str}")
+
+    df_final = pd.concat(frames, ignore_index=True)
+    fechas_str = ", ".join(f.strftime("%d/%m/%Y") for f in fechas_filtro)
+    return df_final, f"{len(df_final)} movimientos extraídos para: {fechas_str}"
