@@ -377,6 +377,7 @@ if modulo == "config":
 elif modulo == "pagos":
     modulo_pagos()
 elif modulo == "cargue":
-    modulo_proximamente("Cargue Banco", "📤")
+    from modulo_cargue_banco import render as render_cargue
+    render_cargue()
 elif modulo == "conciliacion":
     modulo_proximamente("Conciliación Bancaria", "🔍")
