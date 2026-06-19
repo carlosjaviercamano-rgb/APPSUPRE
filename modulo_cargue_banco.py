@@ -1,141 +1,201 @@
-import streamlit as st
 import pandas as pd
-from datetime import date
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
+from datetime import datetime
+import io
+import streamlit as st
+
+# Configuración por entidad
+ENTIDADES_CONFIG = {
+    "BANCOLOMBIA": {
+        "nit":           "890903938",
+        "cuenta_debito": "112005001",
+    },
+    "DAVIVIENDA": {
+        "nit":           "860034313",
+        "cuenta_debito": "111005005",
+    }
+}
+
+CUENTA_CREDITO    = "141299011"
+CODIGO_CENTRO     = "102"
 
 
-def render():
-    st.markdown("""
-    <div class="module-header">
-        <div class="module-icon">📤</div>
-        <div>
-            <h1>Cargue Banco</h1>
-            <p>Extracción y generación de archivos de cargue bancario</p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+def crear_cargue_banco(df_movimientos, tipo_pago="bancarios"):
+    """
+    Genera archivos de cargue banco (Items) con débitos y créditos.
+    Un archivo por fecha de movimiento.
+    """
+    if df_movimientos is None or df_movimientos.empty:
+        raise ValueError("No hay movimientos para generar el cargue.")
 
-    tab1, tab2 = st.tabs(["📥 1. Extracción", "📁 2. Generar Archivo"])
+    df = df_movimientos.copy()
+    df["FECHA_NORM"] = pd.to_datetime(df["FECHA"], errors="coerce").dt.normalize()
+    fechas_unicas = df["FECHA_NORM"].dropna().unique()
 
-    with tab1:
-        render_extraccion()
-    with tab2:
-        render_generar()
+    hora_str = datetime.now().strftime("%H_%M_%S")
+    archivos_generados = []
 
+    for fecha in sorted(fechas_unicas):
+        df_fecha = df[df["FECHA_NORM"] == fecha].copy().reset_index(drop=True)
+        if df_fecha.empty:
+            continue
 
-def render_extraccion():
-    from extraccion import extraer_cargue_banco
+        fecha_str = pd.Timestamp(fecha).strftime("%d_%m_%Y")
+        nombre    = f"CARGUE_BANCO_{fecha_str}_{hora_str}.xlsx"
+        buffer    = _generar_excel(df_fecha)
+        archivos_generados.append({
+            "nombre": nombre,
+            "buffer": buffer,
+            "fecha":  fecha_str
+        })
 
-    # Verificar libro cargado
-    if not st.session_state.get("archivo_libro"):
-        st.warning("⚠️ Primero carga el Libro de Banco en el módulo **Aplicación y Compensación → Carga de Archivos**.")
-        return
+    if not archivos_generados:
+        return "No se generaron archivos de cargue."
 
-    st.markdown("### Selecciona las fechas a trabajar")
-    st.caption("Los datos se extraen de las hojas BANCOLOMBIA y DAVIVIENDA del libro de banco.")
-
-    # ── Selector de fechas ───────────────────────────────────────────────
-    if "fechas_cargue" not in st.session_state:
-        st.session_state.fechas_cargue = [None]
-
-    col_add, col_del = st.columns([1, 1])
-    with col_add:
-        if len(st.session_state.fechas_cargue) < 5:
-            if st.button("➕ Agregar fecha", key="add_fecha_cargue"):
-                st.session_state.fechas_cargue.append(None)
-                st.rerun()
-    with col_del:
-        if len(st.session_state.fechas_cargue) > 1:
-            if st.button("➖ Quitar fecha", key="del_fecha_cargue"):
-                st.session_state.fechas_cargue.pop()
-                st.rerun()
-
-    fechas_cols = st.columns(len(st.session_state.fechas_cargue))
-    for i, col in enumerate(fechas_cols):
-        with col:
-            val = st.session_state.fechas_cargue[i] or date.today()
-            fecha_sel = st.date_input(
-                f"Fecha {i+1}",
-                value=val,
-                key=f"fecha_cargue_{i}"
-            )
-            st.session_state.fechas_cargue[i] = fecha_sel
-
-    fechas_validas = [f for f in st.session_state.fechas_cargue if f is not None]
-    fechas_str = ", ".join(f.strftime("%d/%m/%Y") for f in fechas_validas)
-    st.caption(f"Fechas seleccionadas: **{fechas_str}**")
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ── Botones extracción y limpieza ───────────────────────────────────
-    col_ext, col_lim = st.columns([3, 1])
-    with col_lim:
-        if st.button("🔄  Limpiar", use_container_width=True, key="limpiar_cargue"):
-            st.session_state["df_cargue_banco"] = None
-            st.session_state["fechas_cargue"]   = [None]
-            st.rerun()
-    with col_ext:
-     if st.button("⬇️  Extraer movimientos bancarios", type="primary", use_container_width=True):
-            with st.spinner("Extrayendo movimientos..."):
-                try:
-                    df, resumen = extraer_cargue_banco(
-                        st.session_state.archivo_libro,
-                        fechas_validas
-                    )
-                    st.session_state["df_cargue_banco"] = df
-                    st.success(f"✅ {resumen}")
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-                    import traceback
-                    st.code(traceback.format_exc())
-
-    # ── Tabla interactiva ────────────────────────────────────────────────
-    if st.session_state.get("df_cargue_banco") is not None:
-        df = st.session_state["df_cargue_banco"]
-        st.markdown("---")
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Total movimientos", len(df))
-        c2.metric("Entidades", df["ENTIDAD"].nunique() if "ENTIDAD" in df.columns else 0)
-        if "VALOR" in df.columns:
-            total = pd.to_numeric(df["VALOR"], errors="coerce").sum()
-            c3.metric("Valor total", f"${total:,.0f}")
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("**📊 Movimientos extraídos:**")
-
-        df_show = df.copy()
-        if "FECHA" in df_show.columns:
-            df_show["FECHA"] = pd.to_datetime(df_show["FECHA"], errors="coerce")
-
-        st.data_editor(
-            df_show,
-            use_container_width=True,
-            num_rows="fixed",
-            key="tabla_cargue_banco",
-            column_config={
-                "FECHA":  st.column_config.DateColumn("Fecha", format="DD/MM/YYYY"),
-                "VALOR":  st.column_config.NumberColumn("Valor", format="$%d"),
-            }
+    # Mostrar botones de descarga
+    st.markdown("#### 📥 Descargar archivos de cargue:")
+    for arch in archivos_generados:
+        arch["buffer"].seek(0)
+        st.download_button(
+            label=f"⬇️  Cargue {arch['fecha']}",
+            data=arch["buffer"].read(),
+            file_name=arch["nombre"],
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key=f"dl_cargue_{arch['fecha']}"
         )
 
+    return f"{len(archivos_generados)} archivos de cargue generados."
 
-def render_generar():
-    from generar_cargue_banco import crear_cargue_banco
 
-    if st.session_state.get("df_cargue_banco") is None:
-        st.warning("⚠️ Primero extrae los movimientos en la pestaña **1. Extracción**.")
-        return
+def _generar_excel(df):
+    """
+    Genera el Excel con DÉBITOS seguidos de CRÉDITOS.
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Items"
 
-    st.markdown("### Generar archivo de cargue banco")
-    st.caption("Genera un archivo Items por cada fecha con débitos y créditos.")
+    # Encabezados
+    encabezados = [
+        "Id", "codigoCentroCosto", "dniTercero", "codigoTipoDniTercero",
+        "codigoCuenta", "valor", "factura", "fechaVencimiento",
+        "codigoImpuesto", "valorBaseImpuesto", "porcentajeImpuesto", "detalle"
+    ]
+    header_fill = PatternFill("solid", fgColor="1F4E79")
+    header_font = Font(bold=True, color="FFFFFF", size=10)
+    for col_idx, col_name in enumerate(encabezados, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=col_name)
+        cell.fill      = header_fill
+        cell.font      = header_font
+        cell.alignment = Alignment(horizontal="center")
 
-    if st.button("📤  Crear Cargue Banco", type="primary", use_container_width=True):
-        with st.spinner("Generando archivos..."):
-            try:
-                resultado = crear_cargue_banco(
-                    st.session_state["df_cargue_banco"]
-                )
-                st.success(f"✅ {resultado}")
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
-                import traceback
-                st.code(traceback.format_exc())
+    consecutivo = 1
+    fila_excel  = 2
+
+    # ── DÉBITOS ─────────────────────────────────────────────────────────
+    for _, row in df.iterrows():
+        entidad = str(row.get("ENTIDAD", "")).upper().strip()
+        config  = ENTIDADES_CONFIG.get(entidad, {})
+        nit     = config.get("nit", "")
+        cuenta  = config.get("cuenta_debito", "")
+        valor   = _num(row.get("VALOR"))
+        fecha   = _fecha_dt(row.get("FECHA"))
+        fecha_str = _fecha_str(row.get("FECHA"))
+        detalle = f"{entidad} {fecha_str}".strip()
+
+        val_str = f"{valor:.2f}".replace('.', ',')
+        _escribir_fila(ws, fila_excel, [
+            consecutivo,
+            CODIGO_CENTRO if nit else "",
+            nit,
+            "NIT" if nit else "",
+            cuenta,
+            val_str,
+            "",      # factura vacía en débito
+            None,    # fechaVencimiento vacía en débito
+            None, None, None,
+            detalle
+        ])
+
+        consecutivo += 1
+        fila_excel  += 1
+
+    # ── CRÉDITOS ─────────────────────────────────────────────────────────
+    for _, row in df.iterrows():
+        entidad = str(row.get("ENTIDAD", "")).upper().strip()
+        config  = ENTIDADES_CONFIG.get(entidad, {})
+        nit     = config.get("nit", "")
+        valor   = _num(row.get("VALOR"))
+        fra     = _factura(row.get("FRA"))
+        fecha   = _fecha_dt(row.get("FECHA"))
+
+        _escribir_fila(ws, fila_excel, [
+            consecutivo,
+            CODIGO_CENTRO if nit else "",
+            nit,
+            "NIT" if nit else "",
+            CUENTA_CREDITO,
+            -abs(valor) if valor else "",
+            fra,     # factura en crédito
+            fecha,   # fechaVencimiento en crédito
+            None, None, None,
+            ""
+        ])
+
+        # Formato fecha
+        if fecha:
+            ws.cell(row=fila_excel, column=8).number_format = "DD/MM/YYYY"
+
+        consecutivo += 1
+        fila_excel  += 1
+
+    # Ajustar anchos
+    for col in ws.columns:
+        max_len = max((len(str(c.value)) if c.value else 0) for c in col)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def _escribir_fila(ws, fila, valores):
+    for col_idx, val in enumerate(valores, start=1):
+        ws.cell(row=fila, column=col_idx, value=val)
+
+
+def _num(val):
+    try:
+        return round(float(str(val).replace(",", "") or 0), 2)
+    except Exception:
+        return 0.0
+
+
+def _factura(val):
+    if not val or str(val).strip() in ("", "nan"):
+        return ""
+    try:
+        f = float(str(val))
+        return str(int(f)) if f == int(f) else str(val)
+    except Exception:
+        return str(val).strip()
+
+
+def _fecha_dt(val):
+    if val is None:
+        return None
+    try:
+        return pd.Timestamp(val).to_pydatetime()
+    except Exception:
+        return None
+
+
+def _fecha_str(val):
+    if val is None:
+        return ""
+    try:
+        return pd.Timestamp(val).strftime("%d-%m-%Y")
+    except Exception:
+        return str(val)[:10] if val else ""
