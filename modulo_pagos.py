@@ -351,41 +351,46 @@ def render_tabla_pagos():
         ]
 
         if tipo_entidad == "Elegir por entidad":
-            if "entidades_recaudo" not in st.session_state:
-                st.session_state.entidades_recaudo = [None]
+            # Iniciar con lista vacía
+            if "entidades_recaudo" not in st.session_state or st.session_state.get("filtro_entidad_tipo_prev") != "Elegir por entidad":
+                st.session_state.entidades_recaudo = []
+            st.session_state["filtro_entidad_tipo_prev"] = "Elegir por entidad"
 
-            col_add2, col_del2 = st.columns([1, 1])
-            with col_add2:
-                if len(st.session_state.entidades_recaudo) < 3:
-                    if st.button("➕ Agregar entidad", key="add_entidad"):
-                        st.session_state.entidades_recaudo.append(None)
-                        st.rerun()
-            with col_del2:
-                if len(st.session_state.entidades_recaudo) > 1:
-                    if st.button("➖ Quitar entidad", key="del_entidad"):
-                        st.session_state.entidades_recaudo.pop()
-                        st.rerun()
-
-            ent_cols = st.columns(len(st.session_state.entidades_recaudo))
-            for i, col in enumerate(ent_cols):
-                with col:
-                    # Opciones disponibles excluyendo las ya seleccionadas
-                    ya_sel = [e for j, e in enumerate(st.session_state.entidades_recaudo) if j != i and e]
-                    opciones = [e for e in ENTIDADES_DISPONIBLES if e not in ya_sel]
-                    val_actual = st.session_state.entidades_recaudo[i]
-                    idx = opciones.index(val_actual) if val_actual in opciones else 0
+            # Mostrar selectbox por cada entidad agregada
+            for i, ent in enumerate(st.session_state.entidades_recaudo):
+                ya_sel = [e for j, e in enumerate(st.session_state.entidades_recaudo) if j != i]
+                opciones = [e for e in ENTIDADES_DISPONIBLES if e not in ya_sel]
+                col_ent, col_del2 = st.columns([4, 1])
+                with col_ent:
                     sel = st.selectbox(
                         f"Entidad {i+1}",
                         opciones,
-                        index=idx,
+                        index=opciones.index(ent) if ent in opciones else 0,
                         key=f"entidad_sel_{i}"
                     )
                     st.session_state.entidades_recaudo[i] = sel
+                with col_del2:
+                    if st.button("✕", key=f"del_ent_{i}", help="Quitar esta entidad"):
+                        st.session_state.entidades_recaudo.pop(i)
+                        st.rerun()
+
+            # Botón agregar (máx 3)
+            if len(st.session_state.entidades_recaudo) < 3:
+                if st.button("➕ Agregar entidad", key="add_entidad"):
+                    ya_sel = st.session_state.entidades_recaudo
+                    primera_libre = next((e for e in ENTIDADES_DISPONIBLES if e not in ya_sel), None)
+                    if primera_libre:
+                        st.session_state.entidades_recaudo.append(primera_libre)
+                    st.rerun()
 
             entidades_validas = [e for e in st.session_state.entidades_recaudo if e]
-            st.caption(f"Entidades seleccionadas: **{', '.join(entidades_validas)}**")
+            if entidades_validas:
+                st.caption(f"Entidades seleccionadas: **{', '.join(entidades_validas)}**")
+            else:
+                st.warning("⚠️ Agrega al menos una entidad.")
         else:
             st.session_state.entidades_recaudo = list(ENTIDADES_DISPONIBLES)
+            st.session_state["filtro_entidad_tipo_prev"] = "Todas"
             entidades_validas = list(ENTIDADES_DISPONIBLES)
 
         st.markdown("<br>", unsafe_allow_html=True)
