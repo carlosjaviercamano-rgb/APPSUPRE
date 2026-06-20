@@ -488,7 +488,7 @@ def _mostrar_reemplazo_cedulas():
     with st.form("form_reemplazo_cedulas"):
         reemplazos = {}
 
-        # Agrupar por cédula para mostrar total y cantidad de pagos
+        # Agrupar por cédula para mostrar pagos individuales
         from collections import defaultdict
         cedulas_agrupadas = defaultdict(list)
         for item in no_encontradas:
@@ -497,19 +497,21 @@ def _mostrar_reemplazo_cedulas():
         cols = st.columns(2)
         for i, (cedula, items) in enumerate(cedulas_agrupadas.items()):
             with cols[i % 2]:
-                # Calcular total y cantidad de pagos
                 n_pagos = len(items)
                 df_banco = st.session_state.df_area_banco
-                total = 0
+
+                # Obtener valores individuales
+                valores = []
                 for item in items:
                     try:
                         val = df_banco.at[item["idx"], "VALOR"]
-                        total += float(str(val).replace(",","") or 0)
+                        valores.append(float(str(val).replace(",","") or 0))
                     except Exception:
-                        pass
+                        valores.append(0)
 
                 pagos_str = f"{n_pagos} pago" if n_pagos == 1 else f"{n_pagos} pagos"
-                label = f"Cédula **{cedula}** | ${total:,.0f} | {pagos_str}"
+                valores_str = " | ".join(f"${v:,.0f}" for v in valores)
+                label = f"Cédula **{cedula}** | {pagos_str}: {valores_str}"
 
                 nueva = st.text_input(
                     label,
