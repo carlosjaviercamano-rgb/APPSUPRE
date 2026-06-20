@@ -207,18 +207,15 @@ def extraer_pagos_recaudos(archivo, fechas_filtro, entidades_filtro=None):
         if df.empty:
             continue
 
-        # ── Filtro 2: por entidad (columna B) ────────────────────────────
-        if entidades_filtro:
-            entidades_hoja = ENTIDADES_POR_HOJA.get(nombre_hoja, [])
+        # ── Filtro 2: por entidad (columna B ya renombrada a ENTIDAD) ──────
+        if entidades_filtro and "ENTIDAD" in df.columns:
+            entidades_hoja    = ENTIDADES_POR_HOJA.get(nombre_hoja, [])
             entidades_aplicar = [e for e in entidades_filtro if e in entidades_hoja]
-            if entidades_aplicar and "ENTIDAD" in df.rename(columns={f"COL_{COL_ENTIDAD}": "ENTIDAD"}).columns:
-                df_temp = df.copy()
-                if f"COL_{COL_ENTIDAD}" in df_temp.columns:
-                    mask = df_temp[f"COL_{COL_ENTIDAD}"].astype(str).str.upper().str.strip().isin(
-                        [e.upper() for e in entidades_aplicar]
-                    )
-                    df_temp = df_temp[mask].copy()
-                df = df_temp
+            if entidades_aplicar:
+                mask = df["ENTIDAD"].astype(str).str.upper().str.strip().isin(
+                    [e.upper() for e in entidades_aplicar]
+                )
+                df = df[mask].copy()
 
         if df.empty:
             continue
