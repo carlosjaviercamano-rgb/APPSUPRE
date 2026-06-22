@@ -347,24 +347,36 @@ def _render_conciliar_puentes():
 
 
 def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta):
-    """Lee cada auxiliar y extrae SOLO las filas de la cuenta indicada."""
+    """Lee cada auxiliar filtrando solo la cuenta indicada."""
     frames = []
     for archivo in archivos:
         try:
-            # Leer en chunks para no cargar todo en memoria
-            chunks = pd.read_excel(archivo, sheet_name=0, chunksize=5000)
-            for chunk in chunks:
-                chunk.columns = [c.strip().lower() for c in chunk.columns]
-                if "codigocuenta" in chunk.columns:
-                    filtrado = chunk[
-                        chunk["codigocuenta"].astype(str).str.strip() == str(codigo_cuenta).strip()
-                    ]
-                    if not filtrado.empty:
-                        # Agregar Source.Name
-                        empresa = str(filtrado["empresa"].iloc[0]).strip() if "empresa" in filtrado.columns else archivo.name
-                        filtrado = filtrado.copy()
-                        filtrado.insert(0, "Source.Name", empresa)
-                        frames.append(filtrado)
+            # Leer el archivo completo (read_excel no soporta chunksize)
+            # pero solo las columnas necesarias para ahorrar memoria
+            df = pd.read_excel(archivo, sheet_name=0)
+            df.columns = [c.strip().lower() for c in df.columns]
+
+            # Columna G del auxiliar original = codigocuenta (sin Source.Name al inicio)
+            col_cuenta = "codigocuenta"
+            if col_cuenta not in df.columns:
+                continue
+
+            # Filtrar solo filas de la cuenta
+            filtrado = df[
+                df[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
+            ].copy()
+
+            if filtrado.empty:
+                continue
+
+            # Agregar Source.Name con nombre de empresa
+            empresa = str(filtrado["empresa"].iloc[0]).strip() if "empresa" in filtrado.columns else archivo.name
+            filtrado.insert(0, "Source.Name", empresa)
+            frames.append(filtrado)
+
+            # Liberar memoria del df completo
+            del df
+
         except Exception as e:
             raise ValueError(f"Error leyendo {archivo.name}: {str(e)}")
 
@@ -588,24 +600,36 @@ def _render_conciliar_puentes():
 
 
 def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta):
-    """Lee cada auxiliar y extrae SOLO las filas de la cuenta indicada."""
+    """Lee cada auxiliar filtrando solo la cuenta indicada."""
     frames = []
     for archivo in archivos:
         try:
-            # Leer en chunks para no cargar todo en memoria
-            chunks = pd.read_excel(archivo, sheet_name=0, chunksize=5000)
-            for chunk in chunks:
-                chunk.columns = [c.strip().lower() for c in chunk.columns]
-                if "codigocuenta" in chunk.columns:
-                    filtrado = chunk[
-                        chunk["codigocuenta"].astype(str).str.strip() == str(codigo_cuenta).strip()
-                    ]
-                    if not filtrado.empty:
-                        # Agregar Source.Name
-                        empresa = str(filtrado["empresa"].iloc[0]).strip() if "empresa" in filtrado.columns else archivo.name
-                        filtrado = filtrado.copy()
-                        filtrado.insert(0, "Source.Name", empresa)
-                        frames.append(filtrado)
+            # Leer el archivo completo (read_excel no soporta chunksize)
+            # pero solo las columnas necesarias para ahorrar memoria
+            df = pd.read_excel(archivo, sheet_name=0)
+            df.columns = [c.strip().lower() for c in df.columns]
+
+            # Columna G del auxiliar original = codigocuenta (sin Source.Name al inicio)
+            col_cuenta = "codigocuenta"
+            if col_cuenta not in df.columns:
+                continue
+
+            # Filtrar solo filas de la cuenta
+            filtrado = df[
+                df[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
+            ].copy()
+
+            if filtrado.empty:
+                continue
+
+            # Agregar Source.Name con nombre de empresa
+            empresa = str(filtrado["empresa"].iloc[0]).strip() if "empresa" in filtrado.columns else archivo.name
+            filtrado.insert(0, "Source.Name", empresa)
+            frames.append(filtrado)
+
+            # Liberar memoria del df completo
+            del df
+
         except Exception as e:
             raise ValueError(f"Error leyendo {archivo.name}: {str(e)}")
 
@@ -838,24 +862,36 @@ def _render_conciliar_puentes():
 
 
 def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta):
-    """Lee cada auxiliar y extrae SOLO las filas de la cuenta indicada."""
+    """Lee cada auxiliar filtrando solo la cuenta indicada."""
     frames = []
     for archivo in archivos:
         try:
-            # Leer en chunks para no cargar todo en memoria
-            chunks = pd.read_excel(archivo, sheet_name=0, chunksize=5000)
-            for chunk in chunks:
-                chunk.columns = [c.strip().lower() for c in chunk.columns]
-                if "codigocuenta" in chunk.columns:
-                    filtrado = chunk[
-                        chunk["codigocuenta"].astype(str).str.strip() == str(codigo_cuenta).strip()
-                    ]
-                    if not filtrado.empty:
-                        # Agregar Source.Name
-                        empresa = str(filtrado["empresa"].iloc[0]).strip() if "empresa" in filtrado.columns else archivo.name
-                        filtrado = filtrado.copy()
-                        filtrado.insert(0, "Source.Name", empresa)
-                        frames.append(filtrado)
+            # Leer el archivo completo (read_excel no soporta chunksize)
+            # pero solo las columnas necesarias para ahorrar memoria
+            df = pd.read_excel(archivo, sheet_name=0)
+            df.columns = [c.strip().lower() for c in df.columns]
+
+            # Columna G del auxiliar original = codigocuenta (sin Source.Name al inicio)
+            col_cuenta = "codigocuenta"
+            if col_cuenta not in df.columns:
+                continue
+
+            # Filtrar solo filas de la cuenta
+            filtrado = df[
+                df[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
+            ].copy()
+
+            if filtrado.empty:
+                continue
+
+            # Agregar Source.Name con nombre de empresa
+            empresa = str(filtrado["empresa"].iloc[0]).strip() if "empresa" in filtrado.columns else archivo.name
+            filtrado.insert(0, "Source.Name", empresa)
+            frames.append(filtrado)
+
+            # Liberar memoria del df completo
+            del df
+
         except Exception as e:
             raise ValueError(f"Error leyendo {archivo.name}: {str(e)}")
 
