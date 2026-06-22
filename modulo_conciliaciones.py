@@ -190,6 +190,7 @@ def render_cargue_auxiliares(key_prefix=""):
             return df_auxiliar
 
     # Si ya hay df en sesión aunque no haya archivos cargados, mostrar descarga
+    key_df = f"{key_prefix}_df_auxiliar"
     df_auxiliar = st.session_state.get(key_df)
     if df_auxiliar is not None:
         key_bytes = f"{key_prefix}_auxiliar_bytes"
