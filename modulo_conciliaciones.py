@@ -147,32 +147,45 @@ def render_cargue_auxiliares(key_prefix=""):
 
         if st.button("🔗 Unir Auxiliares", key=f"btn_unir_{key_prefix}",
                      type="primary", use_container_width=True):
-            with st.spinner("Uniendo auxiliares..."):
+            with st.spinner("Uniendo auxiliares... esto puede tomar unos segundos."):
                 try:
-                    df_unido = _unir_auxiliares(archivos_cargados)
-                    st.session_state[key_df] = df_unido
-                    st.success(f"✅ Libro Auxiliar creado: {len(df_unido):,} registros de {len(archivos_cargados)} auxiliar(es).")
+                    df_completo, df_conciliar = _unir_auxiliares(archivos_cargados)
+                    # Guardar ambas versiones en sesión
+                    st.session_state[key_df]                      = df_conciliar  # para conciliar (ligero)
+                    st.session_state[f"{key_prefix}_df_completo"] = df_completo   # para descarga (completo)
+                    # Limpiar bytes anteriores para regenerar
+                    key_bytes = f"{key_prefix}_auxiliar_bytes"
+                    if key_bytes in st.session_state:
+                        del st.session_state[key_bytes]
+                    st.success(f"✅ Libro Auxiliar creado: {len(df_completo):,} registros de {len(archivos_cargados)} auxiliar(es).")
+                    st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
 
         # Mostrar preview y descarga si ya está unido
         df_auxiliar = st.session_state.get(key_df)
         if df_auxiliar is not None:
             st.markdown("---")
             c1, c2, c3 = st.columns(3)
+            df_completo_prev = st.session_state.get(f"{key_prefix}_df_completo", df_auxiliar)
             c1.metric("Total registros", f"{len(df_auxiliar):,}")
             c2.metric("Empresas", df_auxiliar["empresa"].nunique() if "empresa" in df_auxiliar.columns else 0)
             c3.metric("Auxiliares", df_auxiliar["Source.Name"].nunique() if "Source.Name" in df_auxiliar.columns else 0)
 
             with st.expander("👁️ Vista previa"):
-                st.dataframe(df_auxiliar.head(20), use_container_width=True)
+                st.dataframe(df_completo_prev.head(20), use_container_width=True)
 
-            # Generar bytes del Excel solo una vez y guardar en sesión
-            key_bytes = f"{key_prefix}_auxiliar_bytes"
+            # Generar bytes del Excel completo solo una vez
+            key_bytes    = f"{key_prefix}_auxiliar_bytes"
+            key_completo = f"{key_prefix}_df_completo"
+            df_completo  = st.session_state.get(key_completo, df_auxiliar)
+
             if key_bytes not in st.session_state:
                 cols_decimales = ["valor", "baseimpuesto", "saldoanterior",
                                   "debito", "credito", "saldoactual"]
-                df_descarga = df_auxiliar.copy()
+                df_descarga = df_completo.copy()
                 for col in cols_decimales:
                     if col in df_descarga.columns:
                         df_descarga[col] = pd.to_numeric(df_descarga[col], errors="coerce").round(2)
@@ -209,30 +222,46 @@ def render_cargue_auxiliares(key_prefix=""):
 
 
 def _unir_auxiliares(archivos):
-    """Une múltiples auxiliares en un solo DataFrame."""
-    frames = []
+    """
+    Une múltiples auxiliares manteniendo estructura completa.
+    Para descarga: todas las columnas.
+    Para conciliación: solo columnas clave (optimización de memoria).
+    """
+    cols_conciliacion = {
+        "id", "empresa", "codigocuenta", "identificacion", "valor"
+    }
+
+    frames_completos  = []
+    frames_conciliar  = []
+
     for archivo in archivos:
         try:
             df = pd.read_excel(archivo, sheet_name=0)
             df.columns = [c.strip().lower() for c in df.columns]
 
-            # Obtener nombre empresa del archivo
             empresa = ""
             if "empresa" in df.columns and not df.empty:
                 empresa = str(df["empresa"].iloc[0]).strip()
 
-            # Agregar Source.Name con el nombre de la empresa
             df.insert(0, "Source.Name", empresa if empresa else archivo.name)
 
-            frames.append(df)
+            # DataFrame completo para descarga
+            frames_completos.append(df)
+
+            # DataFrame reducido para conciliación (menos memoria)
+            cols_disp = [c for c in df.columns if c in cols_conciliacion or c == "Source.Name"]
+            frames_conciliar.append(df[cols_disp].copy())
+
         except Exception as e:
             raise ValueError(f"Error leyendo {archivo.name}: {str(e)}")
 
-    if not frames:
+    if not frames_completos:
         raise ValueError("No se pudieron leer los auxiliares.")
 
-    df_final = pd.concat(frames, ignore_index=True)
-    return df_final
+    df_completo  = pd.concat(frames_completos,  ignore_index=True)
+    df_conciliar = pd.concat(frames_conciliar,  ignore_index=True)
+
+    return df_completo, df_conciliar
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -309,9 +338,21 @@ def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
         st.error("❌ No se encontró la columna 'codigocuenta' en el auxiliar.")
         return
 
+    # Usar df completo para el resultado si está disponible
+    df_completo = st.session_state.get("puentes_df_completo")
+
+    # Filtrar por cuenta en df reducido (para lógica) y en completo (para resultado)
     df_cuenta = df_aux[
         df_aux[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
     ].copy().reset_index(drop=True)
+
+    # df completo filtrado para el resultado final
+    if df_completo is not None and col_cuenta in df_completo.columns:
+        df_cuenta_completo = df_completo[
+            df_completo[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
+        ].copy().reset_index(drop=True)
+    else:
+        df_cuenta_completo = df_cuenta.copy()
 
     if df_cuenta.empty:
         st.warning(f"⚠️ No se encontraron movimientos para la cuenta **{codigo_cuenta}**.")
@@ -392,15 +433,23 @@ def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
     c4.metric("⚠️ Por revisar",              f"{n_revisar:,}")
 
     st.markdown("#### 📋 Tabla de conciliación")
-    st.dataframe(df_cuenta, use_container_width=True, height=400)
+
+    # Agregar columna concilia_con_id al df completo usando el id como índice
+    if "id" in df_cuenta.columns and "id" in df_cuenta_completo.columns:
+        mapa_concilia = dict(zip(df_cuenta["id"].astype(str), df_cuenta["concilia_con_id"]))
+        df_cuenta_completo["concilia_con_id"] = df_cuenta_completo["id"].astype(str).map(mapa_concilia).fillna("REVISAR")
+    else:
+        df_cuenta_completo["concilia_con_id"] = df_cuenta["concilia_con_id"].values
+
+    st.dataframe(df_cuenta_completo, use_container_width=True, height=400)
 
     buf2 = io.BytesIO()
-    df_cuenta.to_excel(buf2, index=False, sheet_name="CONCILIACION")
+    df_cuenta_completo.to_excel(buf2, index=False, sheet_name="CONCILIACION")
     buf2.seek(0)
     st.session_state["puentes_resultado_bytes"] = buf2.getvalue()
 
     st.download_button(
-        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta}",
+        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta} ({len(df_cuenta_completo):,} registros)",
         data=st.session_state["puentes_resultado_bytes"],
         file_name=f"CONCILIACION_{codigo_cuenta}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -485,9 +534,21 @@ def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
         st.error("❌ No se encontró la columna 'codigocuenta' en el auxiliar.")
         return
 
+    # Usar df completo para el resultado si está disponible
+    df_completo = st.session_state.get("puentes_df_completo")
+
+    # Filtrar por cuenta en df reducido (para lógica) y en completo (para resultado)
     df_cuenta = df_aux[
         df_aux[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
     ].copy().reset_index(drop=True)
+
+    # df completo filtrado para el resultado final
+    if df_completo is not None and col_cuenta in df_completo.columns:
+        df_cuenta_completo = df_completo[
+            df_completo[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
+        ].copy().reset_index(drop=True)
+    else:
+        df_cuenta_completo = df_cuenta.copy()
 
     if df_cuenta.empty:
         st.warning(f"⚠️ No se encontraron movimientos para la cuenta **{codigo_cuenta}**.")
@@ -568,15 +629,23 @@ def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
     c4.metric("⚠️ Por revisar",              f"{n_revisar:,}")
 
     st.markdown("#### 📋 Tabla de conciliación")
-    st.dataframe(df_cuenta, use_container_width=True, height=400)
+
+    # Agregar columna concilia_con_id al df completo usando el id como índice
+    if "id" in df_cuenta.columns and "id" in df_cuenta_completo.columns:
+        mapa_concilia = dict(zip(df_cuenta["id"].astype(str), df_cuenta["concilia_con_id"]))
+        df_cuenta_completo["concilia_con_id"] = df_cuenta_completo["id"].astype(str).map(mapa_concilia).fillna("REVISAR")
+    else:
+        df_cuenta_completo["concilia_con_id"] = df_cuenta["concilia_con_id"].values
+
+    st.dataframe(df_cuenta_completo, use_container_width=True, height=400)
 
     buf2 = io.BytesIO()
-    df_cuenta.to_excel(buf2, index=False, sheet_name="CONCILIACION")
+    df_cuenta_completo.to_excel(buf2, index=False, sheet_name="CONCILIACION")
     buf2.seek(0)
     st.session_state["puentes_resultado_bytes"] = buf2.getvalue()
 
     st.download_button(
-        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta}",
+        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta} ({len(df_cuenta_completo):,} registros)",
         data=st.session_state["puentes_resultado_bytes"],
         file_name=f"CONCILIACION_{codigo_cuenta}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -646,9 +715,21 @@ def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
         st.error("❌ No se encontró la columna 'codigocuenta' en el auxiliar.")
         return
 
+    # Usar df completo para el resultado si está disponible
+    df_completo = st.session_state.get("puentes_df_completo")
+
+    # Filtrar por cuenta en df reducido (para lógica) y en completo (para resultado)
     df_cuenta = df_aux[
         df_aux[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
     ].copy().reset_index(drop=True)
+
+    # df completo filtrado para el resultado final
+    if df_completo is not None and col_cuenta in df_completo.columns:
+        df_cuenta_completo = df_completo[
+            df_completo[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
+        ].copy().reset_index(drop=True)
+    else:
+        df_cuenta_completo = df_cuenta.copy()
 
     if df_cuenta.empty:
         st.warning(f"⚠️ No se encontraron movimientos para la cuenta **{codigo_cuenta}**.")
@@ -729,15 +810,23 @@ def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
     c4.metric("⚠️ Por revisar",              f"{n_revisar:,}")
 
     st.markdown("#### 📋 Tabla de conciliación")
-    st.dataframe(df_cuenta, use_container_width=True, height=400)
+
+    # Agregar columna concilia_con_id al df completo usando el id como índice
+    if "id" in df_cuenta.columns and "id" in df_cuenta_completo.columns:
+        mapa_concilia = dict(zip(df_cuenta["id"].astype(str), df_cuenta["concilia_con_id"]))
+        df_cuenta_completo["concilia_con_id"] = df_cuenta_completo["id"].astype(str).map(mapa_concilia).fillna("REVISAR")
+    else:
+        df_cuenta_completo["concilia_con_id"] = df_cuenta["concilia_con_id"].values
+
+    st.dataframe(df_cuenta_completo, use_container_width=True, height=400)
 
     buf2 = io.BytesIO()
-    df_cuenta.to_excel(buf2, index=False, sheet_name="CONCILIACION")
+    df_cuenta_completo.to_excel(buf2, index=False, sheet_name="CONCILIACION")
     buf2.seek(0)
     st.session_state["puentes_resultado_bytes"] = buf2.getvalue()
 
     st.download_button(
-        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta}",
+        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta} ({len(df_cuenta_completo):,} registros)",
         data=st.session_state["puentes_resultado_bytes"],
         file_name=f"CONCILIACION_{codigo_cuenta}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
