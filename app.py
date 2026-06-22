@@ -264,7 +264,7 @@ with st.sidebar:
     for key, icon, label, badge, bcls in [
         ("pagos",         "💳", "Aplicación y Compensación",  "Activo", "ready"),
         ("cargue",        "📤", "Cargue Banco",                "Próximo", ""),
-        ("conciliacion",  "🔍", "Conciliación Bancaria",       "Próximo", ""),
+        ("conciliacion",  "🔍", "Conciliaciones",               "Activo",  "ready"),
     ]:
         is_active = st.session_state.modulo == key
         btn_style = "background:#1e40af;color:white;" if is_active else ""
@@ -380,4 +380,5 @@ elif modulo == "cargue":
     from modulo_cargue_banco import render as render_cargue
     render_cargue()
 elif modulo == "conciliacion":
-    modulo_proximamente("Conciliación Bancaria", "🔍")
+    from modulo_conciliaciones import render as render_conciliacion
+    render_conciliacion()
