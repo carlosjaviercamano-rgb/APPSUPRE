@@ -394,7 +394,8 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
     df[col_valor] = pd.to_numeric(df[col_valor], errors="coerce").fillna(0)
 
     # Normalizar identificacion (quitar nulos)
-    df[col_iden] = df[col_iden].astype(str).str.strip().replace("nan","").replace("None","")
+    df[col_iden] = df[col_iden].astype(str).str.strip()
+    df[col_iden] = df[col_iden].replace({"nan": "", "None": "", "NaN": ""})
 
     total_movimientos = len(df)
     suma_total = round(df[col_valor].sum(), 2)
@@ -630,7 +631,8 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
     df[col_valor] = pd.to_numeric(df[col_valor], errors="coerce").fillna(0)
 
     # Normalizar identificacion (quitar nulos)
-    df[col_iden] = df[col_iden].astype(str).str.strip().replace("nan","").replace("None","")
+    df[col_iden] = df[col_iden].astype(str).str.strip()
+    df[col_iden] = df[col_iden].replace({"nan": "", "None": "", "NaN": ""})
 
     total_movimientos = len(df)
     suma_total = round(df[col_valor].sum(), 2)
@@ -875,7 +877,8 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
     df[col_valor] = pd.to_numeric(df[col_valor], errors="coerce").fillna(0)
 
     # Normalizar identificacion (quitar nulos)
-    df[col_iden] = df[col_iden].astype(str).str.strip().replace("nan","").replace("None","")
+    df[col_iden] = df[col_iden].astype(str).str.strip()
+    df[col_iden] = df[col_iden].replace({"nan": "", "None": "", "NaN": ""})
 
     total_movimientos = len(df)
     suma_total = round(df[col_valor].sum(), 2)
