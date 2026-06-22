@@ -269,7 +269,144 @@ def render_bancaria():
             st.success(f"✅ {extracto.name}")
 
     with tab2:
-        st.info("🚧 Lógica de conciliación — próximamente. Primero carga los archivos en la pestaña 1.")
+        _render_conciliar_puentes()
+
+
+def _render_conciliar_puentes():
+    df_aux = st.session_state.get("puentes_df_auxiliar")
+    if df_aux is None:
+        st.warning("⚠️ Primero carga y une los auxiliares en la pestaña **1. Cargar Archivos**.")
+        return
+
+    st.markdown("### 🔍 Conciliación Cuentas Puentes / Transitorias")
+
+    col_inp, col_btn = st.columns([3, 1])
+    with col_inp:
+        codigo_cuenta = st.text_input(
+            "Código de cuenta a conciliar (codigocuenta):",
+            value=st.session_state.get("puentes_cuenta", ""),
+            placeholder="Ej: 141299011",
+            key="input_cuenta_puentes"
+        )
+    with col_btn:
+        st.markdown("<br>", unsafe_allow_html=True)
+        ejecutar = st.button("🔍 Conciliar", type="primary",
+                             use_container_width=True, key="btn_conciliar_puentes")
+
+    if ejecutar and codigo_cuenta.strip():
+        st.session_state["puentes_cuenta"] = codigo_cuenta.strip()
+        _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta.strip())
+    elif ejecutar:
+        st.warning("⚠️ Ingresa un código de cuenta.")
+
+
+def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
+    col_cuenta = "codigocuenta"
+    col_valor  = "valor"
+    col_iden   = "identificacion"
+    col_id     = "id"
+
+    if col_cuenta not in df_aux.columns:
+        st.error("❌ No se encontró la columna 'codigocuenta' en el auxiliar.")
+        return
+
+    df_cuenta = df_aux[
+        df_aux[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
+    ].copy().reset_index(drop=True)
+
+    if df_cuenta.empty:
+        st.warning(f"⚠️ No se encontraron movimientos para la cuenta **{codigo_cuenta}**.")
+        return
+
+    df_cuenta[col_valor] = pd.to_numeric(df_cuenta[col_valor], errors="coerce").fillna(0)
+    total_movimientos    = len(df_cuenta)
+    suma_total           = df_cuenta[col_valor].sum()
+
+    st.markdown(f"**Cuenta:** `{codigo_cuenta}` | **Movimientos:** {total_movimientos:,} | **Suma total:** ${suma_total:,.2f}")
+
+    # CASO 1: CUENTA CONCILIADA
+    if abs(suma_total) < 0.01:
+        st.success("✅ CUENTA CONCILIADA — La suma de todos los movimientos es 0.")
+        buf = io.BytesIO()
+        df_cuenta.to_excel(buf, index=False, sheet_name="CONCILIADA")
+        buf.seek(0)
+        st.download_button(
+            label=f"⬇️  Descargar movimientos cuenta {codigo_cuenta}",
+            data=buf.getvalue(),
+            file_name=f"CONCILIADA_{codigo_cuenta}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_cuenta_conciliada"
+        )
+        return
+
+    # CASO 2: LÓGICA DE CONCILIACIÓN
+    st.warning(f"⚠️ Suma ≠ 0 (${suma_total:,.2f}). Aplicando lógica de conciliación...")
+
+    df_cuenta["concilia_con_id"] = ""
+
+    # Paso 1: por cédula suma = 0 → SIN NOVEDAD
+    saldos_cedula     = df_cuenta.groupby(col_iden)[col_valor].sum()
+    cedulas_sin_novedad = set(saldos_cedula[abs(saldos_cedula) < 0.01].index)
+    mask_sin_novedad  = df_cuenta[col_iden].isin(cedulas_sin_novedad)
+    df_cuenta.loc[mask_sin_novedad, "concilia_con_id"] = "SIN NOVEDAD"
+
+    # Paso 2: entre cédulas diferentes buscar parejas que sumen 0
+    df_pendiente   = df_cuenta[~mask_sin_novedad].copy()
+    saldos_pend    = df_pendiente.groupby(col_iden)[col_valor].sum()
+    cedulas_pend   = list(saldos_pend.index)
+    ya_conciliadas = set()
+
+    for i, ced_a in enumerate(cedulas_pend):
+        if ced_a in ya_conciliadas:
+            continue
+        saldo_a = saldos_pend[ced_a]
+        for ced_b in cedulas_pend[i+1:]:
+            if ced_b in ya_conciliadas:
+                continue
+            saldo_b = saldos_pend[ced_b]
+            if abs(saldo_a + saldo_b) < 0.01:
+                ids_a = df_pendiente[df_pendiente[col_iden] == ced_a][col_id].tolist() if col_id in df_pendiente.columns else [ced_a]
+                ids_b = df_pendiente[df_pendiente[col_iden] == ced_b][col_id].tolist() if col_id in df_pendiente.columns else [ced_b]
+                id_a  = str(ids_a[0]) if ids_a else ced_a
+                id_b  = str(ids_b[0]) if ids_b else ced_b
+                df_cuenta.loc[df_cuenta[col_iden] == ced_a, "concilia_con_id"] = id_b
+                df_cuenta.loc[df_cuenta[col_iden] == ced_b, "concilia_con_id"] = id_a
+                ya_conciliadas.add(ced_a)
+                ya_conciliadas.add(ced_b)
+                break
+
+    # Paso 3: resto → REVISAR
+    mask_revisar = df_cuenta["concilia_con_id"] == ""
+    df_cuenta.loc[mask_revisar, "concilia_con_id"] = "REVISAR"
+
+    # REPORTE
+    n_sin_novedad = (df_cuenta["concilia_con_id"] == "SIN NOVEDAD").sum()
+    n_revisar     = (df_cuenta["concilia_con_id"] == "REVISAR").sum()
+    n_concilia    = total_movimientos - n_sin_novedad - n_revisar
+
+    st.markdown("---")
+    st.markdown("#### 📊 Resumen de Conciliación")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total movimientos",           f"{total_movimientos:,}")
+    c2.metric("✅ Sin novedad",              f"{n_sin_novedad:,}")
+    c3.metric("🔗 Concilia con otra cédula", f"{n_concilia:,}")
+    c4.metric("⚠️ Por revisar",              f"{n_revisar:,}")
+
+    st.markdown("#### 📋 Tabla de conciliación")
+    st.dataframe(df_cuenta, use_container_width=True, height=400)
+
+    buf2 = io.BytesIO()
+    df_cuenta.to_excel(buf2, index=False, sheet_name="CONCILIACION")
+    buf2.seek(0)
+    st.session_state["puentes_resultado_bytes"] = buf2.getvalue()
+
+    st.download_button(
+        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta}",
+        data=st.session_state["puentes_resultado_bytes"],
+        file_name=f"CONCILIACION_{codigo_cuenta}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="dl_resultado_puentes"
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -308,7 +445,144 @@ def render_qr_credibanco():
                 st.success(f"✅ {libro.name}")
 
     with tab2:
-        st.info("🚧 Lógica de conciliación — próximamente. Primero carga los archivos en la pestaña 1.")
+        _render_conciliar_puentes()
+
+
+def _render_conciliar_puentes():
+    df_aux = st.session_state.get("puentes_df_auxiliar")
+    if df_aux is None:
+        st.warning("⚠️ Primero carga y une los auxiliares en la pestaña **1. Cargar Archivos**.")
+        return
+
+    st.markdown("### 🔍 Conciliación Cuentas Puentes / Transitorias")
+
+    col_inp, col_btn = st.columns([3, 1])
+    with col_inp:
+        codigo_cuenta = st.text_input(
+            "Código de cuenta a conciliar (codigocuenta):",
+            value=st.session_state.get("puentes_cuenta", ""),
+            placeholder="Ej: 141299011",
+            key="input_cuenta_puentes"
+        )
+    with col_btn:
+        st.markdown("<br>", unsafe_allow_html=True)
+        ejecutar = st.button("🔍 Conciliar", type="primary",
+                             use_container_width=True, key="btn_conciliar_puentes")
+
+    if ejecutar and codigo_cuenta.strip():
+        st.session_state["puentes_cuenta"] = codigo_cuenta.strip()
+        _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta.strip())
+    elif ejecutar:
+        st.warning("⚠️ Ingresa un código de cuenta.")
+
+
+def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
+    col_cuenta = "codigocuenta"
+    col_valor  = "valor"
+    col_iden   = "identificacion"
+    col_id     = "id"
+
+    if col_cuenta not in df_aux.columns:
+        st.error("❌ No se encontró la columna 'codigocuenta' en el auxiliar.")
+        return
+
+    df_cuenta = df_aux[
+        df_aux[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
+    ].copy().reset_index(drop=True)
+
+    if df_cuenta.empty:
+        st.warning(f"⚠️ No se encontraron movimientos para la cuenta **{codigo_cuenta}**.")
+        return
+
+    df_cuenta[col_valor] = pd.to_numeric(df_cuenta[col_valor], errors="coerce").fillna(0)
+    total_movimientos    = len(df_cuenta)
+    suma_total           = df_cuenta[col_valor].sum()
+
+    st.markdown(f"**Cuenta:** `{codigo_cuenta}` | **Movimientos:** {total_movimientos:,} | **Suma total:** ${suma_total:,.2f}")
+
+    # CASO 1: CUENTA CONCILIADA
+    if abs(suma_total) < 0.01:
+        st.success("✅ CUENTA CONCILIADA — La suma de todos los movimientos es 0.")
+        buf = io.BytesIO()
+        df_cuenta.to_excel(buf, index=False, sheet_name="CONCILIADA")
+        buf.seek(0)
+        st.download_button(
+            label=f"⬇️  Descargar movimientos cuenta {codigo_cuenta}",
+            data=buf.getvalue(),
+            file_name=f"CONCILIADA_{codigo_cuenta}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_cuenta_conciliada"
+        )
+        return
+
+    # CASO 2: LÓGICA DE CONCILIACIÓN
+    st.warning(f"⚠️ Suma ≠ 0 (${suma_total:,.2f}). Aplicando lógica de conciliación...")
+
+    df_cuenta["concilia_con_id"] = ""
+
+    # Paso 1: por cédula suma = 0 → SIN NOVEDAD
+    saldos_cedula     = df_cuenta.groupby(col_iden)[col_valor].sum()
+    cedulas_sin_novedad = set(saldos_cedula[abs(saldos_cedula) < 0.01].index)
+    mask_sin_novedad  = df_cuenta[col_iden].isin(cedulas_sin_novedad)
+    df_cuenta.loc[mask_sin_novedad, "concilia_con_id"] = "SIN NOVEDAD"
+
+    # Paso 2: entre cédulas diferentes buscar parejas que sumen 0
+    df_pendiente   = df_cuenta[~mask_sin_novedad].copy()
+    saldos_pend    = df_pendiente.groupby(col_iden)[col_valor].sum()
+    cedulas_pend   = list(saldos_pend.index)
+    ya_conciliadas = set()
+
+    for i, ced_a in enumerate(cedulas_pend):
+        if ced_a in ya_conciliadas:
+            continue
+        saldo_a = saldos_pend[ced_a]
+        for ced_b in cedulas_pend[i+1:]:
+            if ced_b in ya_conciliadas:
+                continue
+            saldo_b = saldos_pend[ced_b]
+            if abs(saldo_a + saldo_b) < 0.01:
+                ids_a = df_pendiente[df_pendiente[col_iden] == ced_a][col_id].tolist() if col_id in df_pendiente.columns else [ced_a]
+                ids_b = df_pendiente[df_pendiente[col_iden] == ced_b][col_id].tolist() if col_id in df_pendiente.columns else [ced_b]
+                id_a  = str(ids_a[0]) if ids_a else ced_a
+                id_b  = str(ids_b[0]) if ids_b else ced_b
+                df_cuenta.loc[df_cuenta[col_iden] == ced_a, "concilia_con_id"] = id_b
+                df_cuenta.loc[df_cuenta[col_iden] == ced_b, "concilia_con_id"] = id_a
+                ya_conciliadas.add(ced_a)
+                ya_conciliadas.add(ced_b)
+                break
+
+    # Paso 3: resto → REVISAR
+    mask_revisar = df_cuenta["concilia_con_id"] == ""
+    df_cuenta.loc[mask_revisar, "concilia_con_id"] = "REVISAR"
+
+    # REPORTE
+    n_sin_novedad = (df_cuenta["concilia_con_id"] == "SIN NOVEDAD").sum()
+    n_revisar     = (df_cuenta["concilia_con_id"] == "REVISAR").sum()
+    n_concilia    = total_movimientos - n_sin_novedad - n_revisar
+
+    st.markdown("---")
+    st.markdown("#### 📊 Resumen de Conciliación")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total movimientos",           f"{total_movimientos:,}")
+    c2.metric("✅ Sin novedad",              f"{n_sin_novedad:,}")
+    c3.metric("🔗 Concilia con otra cédula", f"{n_concilia:,}")
+    c4.metric("⚠️ Por revisar",              f"{n_revisar:,}")
+
+    st.markdown("#### 📋 Tabla de conciliación")
+    st.dataframe(df_cuenta, use_container_width=True, height=400)
+
+    buf2 = io.BytesIO()
+    df_cuenta.to_excel(buf2, index=False, sheet_name="CONCILIACION")
+    buf2.seek(0)
+    st.session_state["puentes_resultado_bytes"] = buf2.getvalue()
+
+    st.download_button(
+        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta}",
+        data=st.session_state["puentes_resultado_bytes"],
+        file_name=f"CONCILIACION_{codigo_cuenta}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="dl_resultado_puentes"
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -332,4 +606,141 @@ def render_puentes():
             st.session_state["puentes_df_auxiliar"] = df_aux
 
     with tab2:
-        st.info("🚧 Lógica de conciliación — próximamente. Primero carga los archivos en la pestaña 1.")
+        _render_conciliar_puentes()
+
+
+def _render_conciliar_puentes():
+    df_aux = st.session_state.get("puentes_df_auxiliar")
+    if df_aux is None:
+        st.warning("⚠️ Primero carga y une los auxiliares en la pestaña **1. Cargar Archivos**.")
+        return
+
+    st.markdown("### 🔍 Conciliación Cuentas Puentes / Transitorias")
+
+    col_inp, col_btn = st.columns([3, 1])
+    with col_inp:
+        codigo_cuenta = st.text_input(
+            "Código de cuenta a conciliar (codigocuenta):",
+            value=st.session_state.get("puentes_cuenta", ""),
+            placeholder="Ej: 141299011",
+            key="input_cuenta_puentes"
+        )
+    with col_btn:
+        st.markdown("<br>", unsafe_allow_html=True)
+        ejecutar = st.button("🔍 Conciliar", type="primary",
+                             use_container_width=True, key="btn_conciliar_puentes")
+
+    if ejecutar and codigo_cuenta.strip():
+        st.session_state["puentes_cuenta"] = codigo_cuenta.strip()
+        _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta.strip())
+    elif ejecutar:
+        st.warning("⚠️ Ingresa un código de cuenta.")
+
+
+def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
+    col_cuenta = "codigocuenta"
+    col_valor  = "valor"
+    col_iden   = "identificacion"
+    col_id     = "id"
+
+    if col_cuenta not in df_aux.columns:
+        st.error("❌ No se encontró la columna 'codigocuenta' en el auxiliar.")
+        return
+
+    df_cuenta = df_aux[
+        df_aux[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
+    ].copy().reset_index(drop=True)
+
+    if df_cuenta.empty:
+        st.warning(f"⚠️ No se encontraron movimientos para la cuenta **{codigo_cuenta}**.")
+        return
+
+    df_cuenta[col_valor] = pd.to_numeric(df_cuenta[col_valor], errors="coerce").fillna(0)
+    total_movimientos    = len(df_cuenta)
+    suma_total           = df_cuenta[col_valor].sum()
+
+    st.markdown(f"**Cuenta:** `{codigo_cuenta}` | **Movimientos:** {total_movimientos:,} | **Suma total:** ${suma_total:,.2f}")
+
+    # CASO 1: CUENTA CONCILIADA
+    if abs(suma_total) < 0.01:
+        st.success("✅ CUENTA CONCILIADA — La suma de todos los movimientos es 0.")
+        buf = io.BytesIO()
+        df_cuenta.to_excel(buf, index=False, sheet_name="CONCILIADA")
+        buf.seek(0)
+        st.download_button(
+            label=f"⬇️  Descargar movimientos cuenta {codigo_cuenta}",
+            data=buf.getvalue(),
+            file_name=f"CONCILIADA_{codigo_cuenta}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_cuenta_conciliada"
+        )
+        return
+
+    # CASO 2: LÓGICA DE CONCILIACIÓN
+    st.warning(f"⚠️ Suma ≠ 0 (${suma_total:,.2f}). Aplicando lógica de conciliación...")
+
+    df_cuenta["concilia_con_id"] = ""
+
+    # Paso 1: por cédula suma = 0 → SIN NOVEDAD
+    saldos_cedula     = df_cuenta.groupby(col_iden)[col_valor].sum()
+    cedulas_sin_novedad = set(saldos_cedula[abs(saldos_cedula) < 0.01].index)
+    mask_sin_novedad  = df_cuenta[col_iden].isin(cedulas_sin_novedad)
+    df_cuenta.loc[mask_sin_novedad, "concilia_con_id"] = "SIN NOVEDAD"
+
+    # Paso 2: entre cédulas diferentes buscar parejas que sumen 0
+    df_pendiente   = df_cuenta[~mask_sin_novedad].copy()
+    saldos_pend    = df_pendiente.groupby(col_iden)[col_valor].sum()
+    cedulas_pend   = list(saldos_pend.index)
+    ya_conciliadas = set()
+
+    for i, ced_a in enumerate(cedulas_pend):
+        if ced_a in ya_conciliadas:
+            continue
+        saldo_a = saldos_pend[ced_a]
+        for ced_b in cedulas_pend[i+1:]:
+            if ced_b in ya_conciliadas:
+                continue
+            saldo_b = saldos_pend[ced_b]
+            if abs(saldo_a + saldo_b) < 0.01:
+                ids_a = df_pendiente[df_pendiente[col_iden] == ced_a][col_id].tolist() if col_id in df_pendiente.columns else [ced_a]
+                ids_b = df_pendiente[df_pendiente[col_iden] == ced_b][col_id].tolist() if col_id in df_pendiente.columns else [ced_b]
+                id_a  = str(ids_a[0]) if ids_a else ced_a
+                id_b  = str(ids_b[0]) if ids_b else ced_b
+                df_cuenta.loc[df_cuenta[col_iden] == ced_a, "concilia_con_id"] = id_b
+                df_cuenta.loc[df_cuenta[col_iden] == ced_b, "concilia_con_id"] = id_a
+                ya_conciliadas.add(ced_a)
+                ya_conciliadas.add(ced_b)
+                break
+
+    # Paso 3: resto → REVISAR
+    mask_revisar = df_cuenta["concilia_con_id"] == ""
+    df_cuenta.loc[mask_revisar, "concilia_con_id"] = "REVISAR"
+
+    # REPORTE
+    n_sin_novedad = (df_cuenta["concilia_con_id"] == "SIN NOVEDAD").sum()
+    n_revisar     = (df_cuenta["concilia_con_id"] == "REVISAR").sum()
+    n_concilia    = total_movimientos - n_sin_novedad - n_revisar
+
+    st.markdown("---")
+    st.markdown("#### 📊 Resumen de Conciliación")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total movimientos",           f"{total_movimientos:,}")
+    c2.metric("✅ Sin novedad",              f"{n_sin_novedad:,}")
+    c3.metric("🔗 Concilia con otra cédula", f"{n_concilia:,}")
+    c4.metric("⚠️ Por revisar",              f"{n_revisar:,}")
+
+    st.markdown("#### 📋 Tabla de conciliación")
+    st.dataframe(df_cuenta, use_container_width=True, height=400)
+
+    buf2 = io.BytesIO()
+    df_cuenta.to_excel(buf2, index=False, sheet_name="CONCILIACION")
+    buf2.seek(0)
+    st.session_state["puentes_resultado_bytes"] = buf2.getvalue()
+
+    st.download_button(
+        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta}",
+        data=st.session_state["puentes_resultado_bytes"],
+        file_name=f"CONCILIACION_{codigo_cuenta}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="dl_resultado_puentes"
+    )
