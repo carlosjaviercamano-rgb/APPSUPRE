@@ -479,123 +479,120 @@ def render_tabla_pagos():
 # FUNCIÓN: REEMPLAZO DE CÉDULAS NO ENCONTRADAS
 # ══════════════════════════════════════════════════════════════════════════
 def _mostrar_reemplazo_cedulas():
+    from collections import defaultdict
+
     no_encontradas = st.session_state.get("pendiente_reemplazo", [])
 
     st.markdown("---")
     st.markdown("### ⚠️ Cédulas no encontradas en base de clientes")
-    st.markdown("Puedes reemplazar las cédulas incorrectas antes de continuar. Deja vacío para marcarlas como **NO EXISTE**.")
+    st.markdown("Puedes reemplazar cédulas incorrectas o registrar clientes nuevos.")
 
-    with st.form("form_reemplazo_cedulas"):
-        reemplazos = {}
+    # Inicializar estados
+    if "clientes_temporales"  not in st.session_state:
+        st.session_state["clientes_temporales"] = []
+    if "cedulas_nuevas_set" not in st.session_state:
+        st.session_state["cedulas_nuevas_set"] = set()
 
-        # Agrupar por cédula para mostrar pagos individuales
-        from collections import defaultdict
-        cedulas_agrupadas = defaultdict(list)
-        for item in no_encontradas:
-            cedulas_agrupadas[item["cedula"]].append(item)
+    # Agrupar por cédula
+    cedulas_agrupadas = defaultdict(list)
+    for item in no_encontradas:
+        cedulas_agrupadas[item["cedula"]].append(item)
 
-        cols = st.columns(2)
-        for i, (cedula, items) in enumerate(cedulas_agrupadas.items()):
-            with cols[i % 2]:
-                n_pagos = len(items)
-                df_banco = st.session_state.df_area_banco
+    reemplazos = {}
 
-                # Obtener valores individuales
-                valores = []
-                for item in items:
-                    try:
-                        val = df_banco.at[item["idx"], "VALOR"]
-                        valores.append(float(str(val).replace(",","") or 0))
-                    except Exception:
-                        valores.append(0)
+    for i, (cedula, items) in enumerate(cedulas_agrupadas.items()):
+        n_pagos     = len(items)
+        df_banco    = st.session_state.df_area_banco
+        valores     = []
+        for item in items:
+            try:
+                val = df_banco.at[item["idx"], "VALOR"]
+                valores.append(float(str(val).replace(",","") or 0))
+            except Exception:
+                valores.append(0)
 
-                pagos_str = f"{n_pagos} pago" if n_pagos == 1 else f"{n_pagos} pagos"
-                valores_str = " | ".join(f"${v:,.0f}" for v in valores)
-                label = f"Cédula **{cedula}** | {pagos_str}: {valores_str}"
+        pagos_str   = f"{n_pagos} pago" if n_pagos == 1 else f"{n_pagos} pagos"
+        valores_str = " | ".join(f"${v:,.0f}" for v in valores)
+        es_nuevo    = cedula in st.session_state["cedulas_nuevas_set"]
 
-                # Inicializar estado de cliente nuevo
-                key_nuevo = f"es_nuevo_{i}"
-                if key_nuevo not in st.session_state:
-                    st.session_state[key_nuevo] = False
+        with st.container():
+            st.markdown(f"**Cédula {cedula}** | {pagos_str}: {valores_str}")
 
+            if not es_nuevo:
                 col_inp, col_btn = st.columns([3, 1])
                 with col_inp:
                     nueva = st.text_input(
-                        label,
-                        value="",
+                        "Reemplazar por (vacío = NO EXISTE):",
+                        value=st.session_state.get(f"remp_val_{cedula}", ""),
                         key=f"remp_{i}",
-                        placeholder="Dejar vacío = NO EXISTE",
-                        disabled=st.session_state[key_nuevo]
+                        placeholder="Dejar vacío = NO EXISTE"
                     )
+                    st.session_state[f"remp_val_{cedula}"] = nueva
                 with col_btn:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if st.toggle("➕ Nuevo", key=f"toggle_nuevo_{i}"):
-                        st.session_state[key_nuevo] = True
-                    else:
-                        st.session_state[key_nuevo] = False
+                    if st.button("➕ Cliente nuevo", key=f"btn_nuevo_{cedula}_{i}"):
+                        st.session_state["cedulas_nuevas_set"].add(cedula)
+                        st.rerun()
+                for item in items:
+                    reemplazos[item["idx"]] = {
+                        "cedula_original": cedula,
+                        "cedula_nueva":    nueva.strip()
+                    }
+            else:
+                st.success("✅ Registrando como cliente nuevo")
+                col_c, col_f, col_x = st.columns([2, 2, 1])
+                with col_c:
+                    company_sel = st.selectbox(
+                        "Company",
+                        ["Suprecartera", "Suprecreditos", "Movicap", "TuCredito"],
+                        key=f"company_{cedula}_{i}"
+                    )
+                with col_f:
+                    factura_sel = st.text_input(
+                        "Num Factura",
+                        value=st.session_state.get(f"factura_val_{cedula}", ""),
+                        key=f"factura_{cedula}_{i}",
+                        placeholder="0000000000"
+                    )
+                    st.session_state[f"factura_val_{cedula}"] = factura_sel
+                with col_x:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.button("✕", key=f"btn_cancel_{cedula}_{i}"):
+                        st.session_state["cedulas_nuevas_set"].discard(cedula)
+                        st.rerun()
 
-                # Formulario cliente nuevo
-                if st.session_state[key_nuevo]:
-                    with st.container():
-                        st.markdown(f"**📋 Agregar cliente nuevo — Cédula: {cedula}**")
-                        col_c, col_f = st.columns(2)
-                        with col_c:
-                            company_nuevo = st.selectbox(
-                                "Company",
-                                ["Suprecartera", "Suprecreditos", "Movicap", "TuCredito"],
-                                key=f"company_nuevo_{i}"
-                            )
-                        with col_f:
-                            factura_nueva = st.text_input(
-                                "Num Factura",
-                                key=f"factura_nuevo_{i}",
-                                placeholder="0000000000"
-                            )
-
-                        if "clientes_temporales" not in st.session_state:
-                            st.session_state["clientes_temporales"] = []
-
-                        # Guardar cliente temporal
-                        ya_guardado = any(
-                            c["iden"] == cedula
-                            for c in st.session_state["clientes_temporales"]
-                        )
-                        if not ya_guardado:
-                            st.session_state["clientes_temporales"].append({
-                                "company":      company_nuevo,
-                                "iden":         cedula,
-                                "num_factura":  factura_nueva
-                            })
-                        else:
-                            # Actualizar si cambia
-                            for c in st.session_state["clientes_temporales"]:
-                                if c["iden"] == cedula:
-                                    c["company"]     = company_nuevo
-                                    c["num_factura"] = factura_nueva
+                # Guardar/actualizar cliente temporal
+                existente = next((c for c in st.session_state["clientes_temporales"] if c["iden"] == cedula), None)
+                if existente:
+                    existente["company"]     = company_sel
+                    existente["num_factura"] = factura_sel
+                else:
+                    st.session_state["clientes_temporales"].append({
+                        "company":     company_sel,
+                        "iden":        cedula,
+                        "num_factura": factura_sel
+                    })
 
                 for item in items:
-                    if not st.session_state[key_nuevo]:
-                        reemplazos[item["idx"]] = {
-                            "cedula_original": cedula,
-                            "cedula_nueva":    nueva.strip()
-                        }
-                    else:
-                        # Cliente nuevo: no reemplaza cédula, se procesa con clientes temporales
-                        reemplazos[item["idx"]] = {
-                            "cedula_original": cedula,
-                            "cedula_nueva":    ""
-                        }
+                    reemplazos[item["idx"]] = {
+                        "cedula_original": cedula,
+                        "cedula_nueva":    ""
+                    }
 
-    if submitted:
+            st.markdown("---")
+
+    # ── Botón confirmar ──────────────────────────────────────────────────
+    if st.button("✅ Confirmar y continuar alistamiento",
+                 use_container_width=True, type="primary",
+                 key="btn_confirmar_reemplazo"):
+
         df_banco = st.session_state.df_area_banco.copy()
-
         if "cedulas_ya_revisadas" not in st.session_state:
             st.session_state["cedulas_ya_revisadas"] = set()
 
         for idx, info in reemplazos.items():
             cedula_orig = info["cedula_original"]
             if cedula_orig in st.session_state["cedulas_nuevas_set"]:
-                # Cliente nuevo: ya está en clientes_temporales, marcar como revisada
                 st.session_state["cedulas_ya_revisadas"].add(cedula_orig)
             elif info["cedula_nueva"]:
                 df_banco.at[idx, "CEDULA"] = info["cedula_nueva"]
@@ -603,7 +600,7 @@ def _mostrar_reemplazo_cedulas():
             else:
                 st.session_state["cedulas_ya_revisadas"].add(cedula_orig)
 
-        st.session_state.df_area_banco = df_banco
+        st.session_state.df_area_banco       = df_banco
         st.session_state["pendiente_reemplazo"] = None
         st.rerun()
 
