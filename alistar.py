@@ -8,6 +8,13 @@ def alistar_informacion(df_area_banco, archivo_clientes):
     df_clientes = pd.read_excel(archivo_clientes, sheet_name="sheet1")
     df_clientes.columns = [c.strip().upper() for c in df_clientes.columns]
 
+    # Agregar clientes temporales si existen
+    clientes_temp = st.session_state.get("clientes_temporales", [])
+    if clientes_temp:
+        df_temp = pd.DataFrame(clientes_temp)
+        df_temp.columns = [c.upper() for c in df_temp.columns]
+        df_clientes = pd.concat([df_clientes, df_temp], ignore_index=True)
+
     df_area_banco = df_area_banco.copy()
     df_area_banco["CEDULA_STR"] = df_area_banco["CEDULA"].astype(str).str.strip()
     df_clientes["IDEN_STR"]     = df_clientes["IDEN"].astype(str).str.strip()
