@@ -586,12 +586,6 @@ def _mostrar_reemplazo_cedulas():
                             "cedula_nueva":    ""
                         }
 
-        confirmar = st.form_submit_button(
-            "✅ Confirmar y continuar alistamiento",
-            use_container_width=True,
-            type="primary"
-        )
-
     if submitted:
         df_banco = st.session_state.df_area_banco.copy()
 
