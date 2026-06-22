@@ -592,21 +592,22 @@ def _mostrar_reemplazo_cedulas():
             type="primary"
         )
 
-    if confirmar:
+    if submitted:
         df_banco = st.session_state.df_area_banco.copy()
 
-        # Inicializar set de cédulas ya revisadas
         if "cedulas_ya_revisadas" not in st.session_state:
             st.session_state["cedulas_ya_revisadas"] = set()
 
         for idx, info in reemplazos.items():
-            if info["cedula_nueva"]:
-                # Reemplazar cédula en tabla de pagos
+            cedula_orig = info["cedula_original"]
+            if cedula_orig in st.session_state["cedulas_nuevas_set"]:
+                # Cliente nuevo: ya está en clientes_temporales, marcar como revisada
+                st.session_state["cedulas_ya_revisadas"].add(cedula_orig)
+            elif info["cedula_nueva"]:
                 df_banco.at[idx, "CEDULA"] = info["cedula_nueva"]
                 st.session_state["cedulas_reemplazadas"][idx] = info
             else:
-                # Marcar como ya revisada (quedará como NO EXISTE)
-                st.session_state["cedulas_ya_revisadas"].add(info["cedula_original"])
+                st.session_state["cedulas_ya_revisadas"].add(cedula_orig)
 
         st.session_state.df_area_banco = df_banco
         st.session_state["pendiente_reemplazo"] = None
