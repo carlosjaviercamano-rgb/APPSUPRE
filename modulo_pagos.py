@@ -513,17 +513,78 @@ def _mostrar_reemplazo_cedulas():
                 valores_str = " | ".join(f"${v:,.0f}" for v in valores)
                 label = f"Cédula **{cedula}** | {pagos_str}: {valores_str}"
 
-                nueva = st.text_input(
-                    label,
-                    value="",
-                    key=f"remp_{i}",
-                    placeholder="Dejar vacío = NO EXISTE"
-                )
+                # Inicializar estado de cliente nuevo
+                key_nuevo = f"es_nuevo_{i}"
+                if key_nuevo not in st.session_state:
+                    st.session_state[key_nuevo] = False
+
+                col_inp, col_btn = st.columns([3, 1])
+                with col_inp:
+                    nueva = st.text_input(
+                        label,
+                        value="",
+                        key=f"remp_{i}",
+                        placeholder="Dejar vacío = NO EXISTE",
+                        disabled=st.session_state[key_nuevo]
+                    )
+                with col_btn:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.toggle("➕ Nuevo", key=f"toggle_nuevo_{i}"):
+                        st.session_state[key_nuevo] = True
+                    else:
+                        st.session_state[key_nuevo] = False
+
+                # Formulario cliente nuevo
+                if st.session_state[key_nuevo]:
+                    with st.container():
+                        st.markdown(f"**📋 Agregar cliente nuevo — Cédula: {cedula}**")
+                        col_c, col_f = st.columns(2)
+                        with col_c:
+                            company_nuevo = st.selectbox(
+                                "Company",
+                                ["Suprecartera", "Suprecreditos", "Movicap", "TuCredito"],
+                                key=f"company_nuevo_{i}"
+                            )
+                        with col_f:
+                            factura_nueva = st.text_input(
+                                "Num Factura",
+                                key=f"factura_nuevo_{i}",
+                                placeholder="0000000000"
+                            )
+
+                        if "clientes_temporales" not in st.session_state:
+                            st.session_state["clientes_temporales"] = []
+
+                        # Guardar cliente temporal
+                        ya_guardado = any(
+                            c["iden"] == cedula
+                            for c in st.session_state["clientes_temporales"]
+                        )
+                        if not ya_guardado:
+                            st.session_state["clientes_temporales"].append({
+                                "company":      company_nuevo,
+                                "iden":         cedula,
+                                "num_factura":  factura_nueva
+                            })
+                        else:
+                            # Actualizar si cambia
+                            for c in st.session_state["clientes_temporales"]:
+                                if c["iden"] == cedula:
+                                    c["company"]     = company_nuevo
+                                    c["num_factura"] = factura_nueva
+
                 for item in items:
-                    reemplazos[item["idx"]] = {
-                        "cedula_original": cedula,
-                        "cedula_nueva":    nueva.strip()
-                    }
+                    if not st.session_state[key_nuevo]:
+                        reemplazos[item["idx"]] = {
+                            "cedula_original": cedula,
+                            "cedula_nueva":    nueva.strip()
+                        }
+                    else:
+                        # Cliente nuevo: no reemplaza cédula, se procesa con clientes temporales
+                        reemplazos[item["idx"]] = {
+                            "cedula_original": cedula,
+                            "cedula_nueva":    ""
+                        }
 
         confirmar = st.form_submit_button(
             "✅ Confirmar y continuar alistamiento",
