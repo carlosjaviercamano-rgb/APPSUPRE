@@ -301,12 +301,13 @@ def render_bancaria():
 
 
 def _render_conciliar_puentes():
-    df_aux = st.session_state.get("puentes_df_auxiliar")
-    if df_aux is None:
-        st.warning("⚠️ Primero carga y une los auxiliares en la pestaña **1. Cargar Archivos**.")
+    archivos = st.session_state.get("puentes_auxiliares", [])
+    if not archivos:
+        st.warning("⚠️ Primero carga los auxiliares en la pestaña **1. Cargar Archivos**.")
         return
 
     st.markdown("### 🔍 Conciliación Cuentas Puentes / Transitorias")
+    st.caption(f"📂 {len(archivos)} auxiliar(es) cargado(s). Ingresa la cuenta y filtra solo esos datos.")
 
     col_inp, col_btn = st.columns([3, 1])
     with col_inp:
@@ -318,14 +319,58 @@ def _render_conciliar_puentes():
         )
     with col_btn:
         st.markdown("<br>", unsafe_allow_html=True)
-        ejecutar = st.button("🔍 Conciliar", type="primary",
+        ejecutar = st.button("🔍 Filtrar y Conciliar", type="primary",
                              use_container_width=True, key="btn_conciliar_puentes")
 
     if ejecutar and codigo_cuenta.strip():
         st.session_state["puentes_cuenta"] = codigo_cuenta.strip()
-        _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta.strip())
+        with st.spinner("Leyendo auxiliares y filtrando por cuenta..."):
+            try:
+                df_filtrado = _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta.strip())
+                if df_filtrado is None or df_filtrado.empty:
+                    st.warning(f"⚠️ No se encontraron registros para la cuenta **{codigo_cuenta}**.")
+                else:
+                    st.session_state["puentes_df_filtrado"] = df_filtrado
+                    st.success(f"✅ {len(df_filtrado):,} registros encontrados para cuenta {codigo_cuenta}.")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
     elif ejecutar:
         st.warning("⚠️ Ingresa un código de cuenta.")
+
+    # Mostrar resultado si ya está filtrado
+    df_filtrado = st.session_state.get("puentes_df_filtrado")
+    if df_filtrado is not None:
+        cuenta_actual = st.session_state.get("puentes_cuenta", "")
+        _ejecutar_conciliacion_puentes(df_filtrado, cuenta_actual)
+
+
+def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta):
+    """Lee cada auxiliar y extrae SOLO las filas de la cuenta indicada."""
+    frames = []
+    for archivo in archivos:
+        try:
+            # Leer en chunks para no cargar todo en memoria
+            chunks = pd.read_excel(archivo, sheet_name=0, chunksize=5000)
+            for chunk in chunks:
+                chunk.columns = [c.strip().lower() for c in chunk.columns]
+                if "codigocuenta" in chunk.columns:
+                    filtrado = chunk[
+                        chunk["codigocuenta"].astype(str).str.strip() == str(codigo_cuenta).strip()
+                    ]
+                    if not filtrado.empty:
+                        # Agregar Source.Name
+                        empresa = str(filtrado["empresa"].iloc[0]).strip() if "empresa" in filtrado.columns else archivo.name
+                        filtrado = filtrado.copy()
+                        filtrado.insert(0, "Source.Name", empresa)
+                        frames.append(filtrado)
+        except Exception as e:
+            raise ValueError(f"Error leyendo {archivo.name}: {str(e)}")
+
+    if not frames:
+        return None
+    return pd.concat(frames, ignore_index=True)
 
 
 def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
@@ -497,12 +542,13 @@ def render_qr_credibanco():
 
 
 def _render_conciliar_puentes():
-    df_aux = st.session_state.get("puentes_df_auxiliar")
-    if df_aux is None:
-        st.warning("⚠️ Primero carga y une los auxiliares en la pestaña **1. Cargar Archivos**.")
+    archivos = st.session_state.get("puentes_auxiliares", [])
+    if not archivos:
+        st.warning("⚠️ Primero carga los auxiliares en la pestaña **1. Cargar Archivos**.")
         return
 
     st.markdown("### 🔍 Conciliación Cuentas Puentes / Transitorias")
+    st.caption(f"📂 {len(archivos)} auxiliar(es) cargado(s). Ingresa la cuenta y filtra solo esos datos.")
 
     col_inp, col_btn = st.columns([3, 1])
     with col_inp:
@@ -514,14 +560,58 @@ def _render_conciliar_puentes():
         )
     with col_btn:
         st.markdown("<br>", unsafe_allow_html=True)
-        ejecutar = st.button("🔍 Conciliar", type="primary",
+        ejecutar = st.button("🔍 Filtrar y Conciliar", type="primary",
                              use_container_width=True, key="btn_conciliar_puentes")
 
     if ejecutar and codigo_cuenta.strip():
         st.session_state["puentes_cuenta"] = codigo_cuenta.strip()
-        _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta.strip())
+        with st.spinner("Leyendo auxiliares y filtrando por cuenta..."):
+            try:
+                df_filtrado = _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta.strip())
+                if df_filtrado is None or df_filtrado.empty:
+                    st.warning(f"⚠️ No se encontraron registros para la cuenta **{codigo_cuenta}**.")
+                else:
+                    st.session_state["puentes_df_filtrado"] = df_filtrado
+                    st.success(f"✅ {len(df_filtrado):,} registros encontrados para cuenta {codigo_cuenta}.")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
     elif ejecutar:
         st.warning("⚠️ Ingresa un código de cuenta.")
+
+    # Mostrar resultado si ya está filtrado
+    df_filtrado = st.session_state.get("puentes_df_filtrado")
+    if df_filtrado is not None:
+        cuenta_actual = st.session_state.get("puentes_cuenta", "")
+        _ejecutar_conciliacion_puentes(df_filtrado, cuenta_actual)
+
+
+def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta):
+    """Lee cada auxiliar y extrae SOLO las filas de la cuenta indicada."""
+    frames = []
+    for archivo in archivos:
+        try:
+            # Leer en chunks para no cargar todo en memoria
+            chunks = pd.read_excel(archivo, sheet_name=0, chunksize=5000)
+            for chunk in chunks:
+                chunk.columns = [c.strip().lower() for c in chunk.columns]
+                if "codigocuenta" in chunk.columns:
+                    filtrado = chunk[
+                        chunk["codigocuenta"].astype(str).str.strip() == str(codigo_cuenta).strip()
+                    ]
+                    if not filtrado.empty:
+                        # Agregar Source.Name
+                        empresa = str(filtrado["empresa"].iloc[0]).strip() if "empresa" in filtrado.columns else archivo.name
+                        filtrado = filtrado.copy()
+                        filtrado.insert(0, "Source.Name", empresa)
+                        frames.append(filtrado)
+        except Exception as e:
+            raise ValueError(f"Error leyendo {archivo.name}: {str(e)}")
+
+    if not frames:
+        return None
+    return pd.concat(frames, ignore_index=True)
 
 
 def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
@@ -669,21 +759,46 @@ def render_puentes():
     tab1, tab2 = st.tabs(["📂 1. Cargar Archivos", "🔍 2. Conciliar"])
 
     with tab1:
-        df_aux = render_cargue_auxiliares("puentes")
-        if df_aux is not None:
-            st.session_state["puentes_df_auxiliar"] = df_aux
+        _render_carga_auxiliares_puentes()
 
     with tab2:
         _render_conciliar_puentes()
 
 
+def _render_carga_auxiliares_puentes():
+    st.markdown("#### 📂 Auxiliares")
+    st.caption("Sube hasta 15 auxiliares. La app filtrará solo la cuenta que necesitas.")
+
+    archivos = st.file_uploader(
+        "Selecciona los auxiliares (.xlsx)",
+        type=["xlsx"],
+        accept_multiple_files=True,
+        key="up_puentes_auxiliares",
+        label_visibility="collapsed"
+    )
+
+    if archivos:
+        if len(archivos) > 15:
+            st.warning("⚠️ Máximo 15 auxiliares.")
+            archivos = archivos[:15]
+        st.session_state["puentes_auxiliares"] = archivos
+
+    cargados = st.session_state.get("puentes_auxiliares", [])
+    if cargados:
+        st.success(f"✅ {len(cargados)} auxiliar(es) listos.")
+        for a in cargados:
+            st.caption(f"   📄 {a.name}")
+        st.info("👉 Ve a la pestaña **2. Conciliar**, ingresa el código de cuenta y filtra.")
+
+
 def _render_conciliar_puentes():
-    df_aux = st.session_state.get("puentes_df_auxiliar")
-    if df_aux is None:
-        st.warning("⚠️ Primero carga y une los auxiliares en la pestaña **1. Cargar Archivos**.")
+    archivos = st.session_state.get("puentes_auxiliares", [])
+    if not archivos:
+        st.warning("⚠️ Primero carga los auxiliares en la pestaña **1. Cargar Archivos**.")
         return
 
     st.markdown("### 🔍 Conciliación Cuentas Puentes / Transitorias")
+    st.caption(f"📂 {len(archivos)} auxiliar(es) cargado(s). Ingresa la cuenta y filtra solo esos datos.")
 
     col_inp, col_btn = st.columns([3, 1])
     with col_inp:
@@ -695,14 +810,58 @@ def _render_conciliar_puentes():
         )
     with col_btn:
         st.markdown("<br>", unsafe_allow_html=True)
-        ejecutar = st.button("🔍 Conciliar", type="primary",
+        ejecutar = st.button("🔍 Filtrar y Conciliar", type="primary",
                              use_container_width=True, key="btn_conciliar_puentes")
 
     if ejecutar and codigo_cuenta.strip():
         st.session_state["puentes_cuenta"] = codigo_cuenta.strip()
-        _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta.strip())
+        with st.spinner("Leyendo auxiliares y filtrando por cuenta..."):
+            try:
+                df_filtrado = _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta.strip())
+                if df_filtrado is None or df_filtrado.empty:
+                    st.warning(f"⚠️ No se encontraron registros para la cuenta **{codigo_cuenta}**.")
+                else:
+                    st.session_state["puentes_df_filtrado"] = df_filtrado
+                    st.success(f"✅ {len(df_filtrado):,} registros encontrados para cuenta {codigo_cuenta}.")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
     elif ejecutar:
         st.warning("⚠️ Ingresa un código de cuenta.")
+
+    # Mostrar resultado si ya está filtrado
+    df_filtrado = st.session_state.get("puentes_df_filtrado")
+    if df_filtrado is not None:
+        cuenta_actual = st.session_state.get("puentes_cuenta", "")
+        _ejecutar_conciliacion_puentes(df_filtrado, cuenta_actual)
+
+
+def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta):
+    """Lee cada auxiliar y extrae SOLO las filas de la cuenta indicada."""
+    frames = []
+    for archivo in archivos:
+        try:
+            # Leer en chunks para no cargar todo en memoria
+            chunks = pd.read_excel(archivo, sheet_name=0, chunksize=5000)
+            for chunk in chunks:
+                chunk.columns = [c.strip().lower() for c in chunk.columns]
+                if "codigocuenta" in chunk.columns:
+                    filtrado = chunk[
+                        chunk["codigocuenta"].astype(str).str.strip() == str(codigo_cuenta).strip()
+                    ]
+                    if not filtrado.empty:
+                        # Agregar Source.Name
+                        empresa = str(filtrado["empresa"].iloc[0]).strip() if "empresa" in filtrado.columns else archivo.name
+                        filtrado = filtrado.copy()
+                        filtrado.insert(0, "Source.Name", empresa)
+                        frames.append(filtrado)
+        except Exception as e:
+            raise ValueError(f"Error leyendo {archivo.name}: {str(e)}")
+
+    if not frames:
+        return None
+    return pd.concat(frames, ignore_index=True)
 
 
 def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
