@@ -385,128 +385,111 @@ def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta):
     return pd.concat(frames, ignore_index=True)
 
 
-def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
-    col_cuenta = "codigocuenta"
-    col_valor  = "valor"
-    col_iden   = "identificacion"
-    col_id     = "id"
+def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
+    col_valor = "valor"
+    col_iden  = "identificacion"
+    col_id    = "id"
 
-    if col_cuenta not in df_aux.columns:
-        st.error("❌ No se encontró la columna 'codigocuenta' en el auxiliar.")
-        return
+    df = df_filtrado.copy()
+    df[col_valor] = pd.to_numeric(df[col_valor], errors="coerce").fillna(0)
 
-    # Usar df completo para el resultado si está disponible
-    df_completo = st.session_state.get("puentes_df_completo")
+    # Normalizar identificacion (quitar nulos)
+    df[col_iden] = df[col_iden].astype(str).str.strip().replace("nan","").replace("None","")
 
-    # Filtrar por cuenta en df reducido (para lógica) y en completo (para resultado)
-    df_cuenta = df_aux[
-        df_aux[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
-    ].copy().reset_index(drop=True)
-
-    # df completo filtrado para el resultado final
-    if df_completo is not None and col_cuenta in df_completo.columns:
-        df_cuenta_completo = df_completo[
-            df_completo[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
-        ].copy().reset_index(drop=True)
-    else:
-        df_cuenta_completo = df_cuenta.copy()
-
-    if df_cuenta.empty:
-        st.warning(f"⚠️ No se encontraron movimientos para la cuenta **{codigo_cuenta}**.")
-        return
-
-    df_cuenta[col_valor] = pd.to_numeric(df_cuenta[col_valor], errors="coerce").fillna(0)
-    total_movimientos    = len(df_cuenta)
-    suma_total           = df_cuenta[col_valor].sum()
+    total_movimientos = len(df)
+    suma_total = round(df[col_valor].sum(), 2)
 
     st.markdown(f"**Cuenta:** `{codigo_cuenta}` | **Movimientos:** {total_movimientos:,} | **Suma total:** ${suma_total:,.2f}")
 
-    # CASO 1: CUENTA CONCILIADA
+    # ── CUENTA CONCILIADA ────────────────────────────────────────────────
     if abs(suma_total) < 0.01:
         st.success("✅ CUENTA CONCILIADA — La suma de todos los movimientos es 0.")
-        buf = io.BytesIO()
-        df_cuenta.to_excel(buf, index=False, sheet_name="CONCILIADA")
-        buf.seek(0)
-        st.download_button(
-            label=f"⬇️  Descargar movimientos cuenta {codigo_cuenta}",
-            data=buf.getvalue(),
-            file_name=f"CONCILIADA_{codigo_cuenta}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_cuenta_conciliada"
-        )
+        df["concilia_con_id"] = "CONCILIADA"
+        _mostrar_resultado(df, codigo_cuenta, total_movimientos, 0, total_movimientos, 0)
         return
 
-    # CASO 2: LÓGICA DE CONCILIACIÓN
     st.warning(f"⚠️ Suma ≠ 0 (${suma_total:,.2f}). Aplicando lógica de conciliación...")
 
-    df_cuenta["concilia_con_id"] = ""
+    df["concilia_con_id"] = ""
 
-    # Paso 1: por cédula suma = 0 → SIN NOVEDAD
-    saldos_cedula     = df_cuenta.groupby(col_iden)[col_valor].sum()
-    cedulas_sin_novedad = set(saldos_cedula[abs(saldos_cedula) < 0.01].index)
-    mask_sin_novedad  = df_cuenta[col_iden].isin(cedulas_sin_novedad)
-    df_cuenta.loc[mask_sin_novedad, "concilia_con_id"] = "SIN NOVEDAD"
+    # ── PASO 1: Por cédula, suma = 0 → SIN NOVEDAD ──────────────────────
+    # Excluir cédulas vacías del agrupamiento
+    df_con_iden = df[df[col_iden] != ""].copy()
+    saldos_ced  = df_con_iden.groupby(col_iden)[col_valor].sum().round(2)
+    ced_sin_nov = set(saldos_ced[abs(saldos_ced) < 0.01].index)
 
-    # Paso 2: entre cédulas diferentes buscar parejas que sumen 0
-    df_pendiente   = df_cuenta[~mask_sin_novedad].copy()
-    saldos_pend    = df_pendiente.groupby(col_iden)[col_valor].sum()
-    cedulas_pend   = list(saldos_pend.index)
-    ya_conciliadas = set()
+    mask_sn = df[col_iden].isin(ced_sin_nov)
+    df.loc[mask_sn, "concilia_con_id"] = "SIN NOVEDAD"
+
+    # ── PASO 2: Entre cédulas diferentes buscar parejas que sumen 0 ──────
+    df_pend      = df[df["concilia_con_id"] == ""].copy()
+    saldos_pend  = df_pend[df_pend[col_iden] != ""].groupby(col_iden)[col_valor].sum().round(2)
+    cedulas_pend = list(saldos_pend.index)
+    ya_concil    = set()
 
     for i, ced_a in enumerate(cedulas_pend):
-        if ced_a in ya_conciliadas:
+        if ced_a in ya_concil:
             continue
         saldo_a = saldos_pend[ced_a]
         for ced_b in cedulas_pend[i+1:]:
-            if ced_b in ya_conciliadas:
+            if ced_b in ya_concil:
                 continue
             saldo_b = saldos_pend[ced_b]
-            if abs(saldo_a + saldo_b) < 0.01:
-                ids_a = df_pendiente[df_pendiente[col_iden] == ced_a][col_id].tolist() if col_id in df_pendiente.columns else [ced_a]
-                ids_b = df_pendiente[df_pendiente[col_iden] == ced_b][col_id].tolist() if col_id in df_pendiente.columns else [ced_b]
-                id_a  = str(ids_a[0]) if ids_a else ced_a
-                id_b  = str(ids_b[0]) if ids_b else ced_b
-                df_cuenta.loc[df_cuenta[col_iden] == ced_a, "concilia_con_id"] = id_b
-                df_cuenta.loc[df_cuenta[col_iden] == ced_b, "concilia_con_id"] = id_a
-                ya_conciliadas.add(ced_a)
-                ya_conciliadas.add(ced_b)
+            if abs(round(saldo_a + saldo_b, 2)) < 0.01:
+                # Obtener IDs de cada cédula (primer registro)
+                filas_a = df_pend[df_pend[col_iden] == ced_a]
+                filas_b = df_pend[df_pend[col_iden] == ced_b]
+                ids_a   = filas_a[col_id].tolist() if col_id in df_pend.columns else []
+                ids_b   = filas_b[col_id].tolist() if col_id in df_pend.columns else []
+
+                # Texto descriptivo del cruce
+                label_a = f"Concilia con ID {ids_b[0]}" if ids_b else f"Concilia con {ced_b}"
+                label_b = f"Concilia con ID {ids_a[0]}" if ids_a else f"Concilia con {ced_a}"
+
+                df.loc[df[col_iden] == ced_a, "concilia_con_id"] = label_a
+                df.loc[df[col_iden] == ced_b, "concilia_con_id"] = label_b
+                ya_concil.add(ced_a)
+                ya_concil.add(ced_b)
                 break
 
-    # Paso 3: resto → REVISAR
-    mask_revisar = df_cuenta["concilia_con_id"] == ""
-    df_cuenta.loc[mask_revisar, "concilia_con_id"] = "REVISAR"
+    # ── PASO 3: Resto → REVISAR ──────────────────────────────────────────
+    df.loc[df["concilia_con_id"] == "", "concilia_con_id"] = "REVISAR"
 
-    # REPORTE
-    n_sin_novedad = (df_cuenta["concilia_con_id"] == "SIN NOVEDAD").sum()
-    n_revisar     = (df_cuenta["concilia_con_id"] == "REVISAR").sum()
-    n_concilia    = total_movimientos - n_sin_novedad - n_revisar
+    # ── REPORTE ──────────────────────────────────────────────────────────
+    n_sin_nov  = (df["concilia_con_id"] == "SIN NOVEDAD").sum()
+    n_revisar  = (df["concilia_con_id"] == "REVISAR").sum()
+    n_concilia = total_movimientos - n_sin_nov - n_revisar
 
+    # Validar valores
+    val_sin_nov  = round(df[mask_sn][col_valor].sum(), 2)
+    val_concilia = round(df[df["concilia_con_id"].str.startswith("Concilia")][col_valor].sum(), 2)
+    val_revisar  = round(df[df["concilia_con_id"] == "REVISAR"][col_valor].sum(), 2)
+
+    _mostrar_resultado(df, codigo_cuenta, total_movimientos, n_sin_nov, n_concilia, n_revisar,
+                       val_sin_nov, val_concilia, val_revisar, suma_total)
+
+
+def _mostrar_resultado(df, codigo_cuenta, total, n_sn, n_conc, n_rev,
+                       val_sn=0, val_conc=0, val_rev=0, suma_total=0):
     st.markdown("---")
     st.markdown("#### 📊 Resumen de Conciliación")
+
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total movimientos",           f"{total_movimientos:,}")
-    c2.metric("✅ Sin novedad",              f"{n_sin_novedad:,}")
-    c3.metric("🔗 Concilia con otra cédula", f"{n_concilia:,}")
-    c4.metric("⚠️ Por revisar",              f"{n_revisar:,}")
+    c1.metric("Total movimientos",            f"{total:,}")
+    c2.metric("✅ Sin novedad",               f"{n_sn:,}",   f"${val_sn:,.2f}")
+    c3.metric("🔗 Concilia con otra cédula",  f"{n_conc:,}", f"${val_conc:,.2f}")
+    c4.metric("⚠️ Por revisar",               f"{n_rev:,}",  f"${val_rev:,.2f} de ${suma_total:,.2f}")
 
     st.markdown("#### 📋 Tabla de conciliación")
+    st.dataframe(df, use_container_width=True, height=400)
 
-    # Agregar columna concilia_con_id al df completo usando el id como índice
-    if "id" in df_cuenta.columns and "id" in df_cuenta_completo.columns:
-        mapa_concilia = dict(zip(df_cuenta["id"].astype(str), df_cuenta["concilia_con_id"]))
-        df_cuenta_completo["concilia_con_id"] = df_cuenta_completo["id"].astype(str).map(mapa_concilia).fillna("REVISAR")
-    else:
-        df_cuenta_completo["concilia_con_id"] = df_cuenta["concilia_con_id"].values
-
-    st.dataframe(df_cuenta_completo, use_container_width=True, height=400)
-
-    buf2 = io.BytesIO()
-    df_cuenta_completo.to_excel(buf2, index=False, sheet_name="CONCILIACION")
-    buf2.seek(0)
-    st.session_state["puentes_resultado_bytes"] = buf2.getvalue()
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False, sheet_name="CONCILIACION")
+    buf.seek(0)
+    st.session_state["puentes_resultado_bytes"] = buf.getvalue()
 
     st.download_button(
-        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta} ({len(df_cuenta_completo):,} registros)",
+        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta} ({len(df):,} registros)",
         data=st.session_state["puentes_resultado_bytes"],
         file_name=f"CONCILIACION_{codigo_cuenta}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -638,128 +621,111 @@ def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta):
     return pd.concat(frames, ignore_index=True)
 
 
-def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
-    col_cuenta = "codigocuenta"
-    col_valor  = "valor"
-    col_iden   = "identificacion"
-    col_id     = "id"
+def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
+    col_valor = "valor"
+    col_iden  = "identificacion"
+    col_id    = "id"
 
-    if col_cuenta not in df_aux.columns:
-        st.error("❌ No se encontró la columna 'codigocuenta' en el auxiliar.")
-        return
+    df = df_filtrado.copy()
+    df[col_valor] = pd.to_numeric(df[col_valor], errors="coerce").fillna(0)
 
-    # Usar df completo para el resultado si está disponible
-    df_completo = st.session_state.get("puentes_df_completo")
+    # Normalizar identificacion (quitar nulos)
+    df[col_iden] = df[col_iden].astype(str).str.strip().replace("nan","").replace("None","")
 
-    # Filtrar por cuenta en df reducido (para lógica) y en completo (para resultado)
-    df_cuenta = df_aux[
-        df_aux[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
-    ].copy().reset_index(drop=True)
-
-    # df completo filtrado para el resultado final
-    if df_completo is not None and col_cuenta in df_completo.columns:
-        df_cuenta_completo = df_completo[
-            df_completo[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
-        ].copy().reset_index(drop=True)
-    else:
-        df_cuenta_completo = df_cuenta.copy()
-
-    if df_cuenta.empty:
-        st.warning(f"⚠️ No se encontraron movimientos para la cuenta **{codigo_cuenta}**.")
-        return
-
-    df_cuenta[col_valor] = pd.to_numeric(df_cuenta[col_valor], errors="coerce").fillna(0)
-    total_movimientos    = len(df_cuenta)
-    suma_total           = df_cuenta[col_valor].sum()
+    total_movimientos = len(df)
+    suma_total = round(df[col_valor].sum(), 2)
 
     st.markdown(f"**Cuenta:** `{codigo_cuenta}` | **Movimientos:** {total_movimientos:,} | **Suma total:** ${suma_total:,.2f}")
 
-    # CASO 1: CUENTA CONCILIADA
+    # ── CUENTA CONCILIADA ────────────────────────────────────────────────
     if abs(suma_total) < 0.01:
         st.success("✅ CUENTA CONCILIADA — La suma de todos los movimientos es 0.")
-        buf = io.BytesIO()
-        df_cuenta.to_excel(buf, index=False, sheet_name="CONCILIADA")
-        buf.seek(0)
-        st.download_button(
-            label=f"⬇️  Descargar movimientos cuenta {codigo_cuenta}",
-            data=buf.getvalue(),
-            file_name=f"CONCILIADA_{codigo_cuenta}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_cuenta_conciliada"
-        )
+        df["concilia_con_id"] = "CONCILIADA"
+        _mostrar_resultado(df, codigo_cuenta, total_movimientos, 0, total_movimientos, 0)
         return
 
-    # CASO 2: LÓGICA DE CONCILIACIÓN
     st.warning(f"⚠️ Suma ≠ 0 (${suma_total:,.2f}). Aplicando lógica de conciliación...")
 
-    df_cuenta["concilia_con_id"] = ""
+    df["concilia_con_id"] = ""
 
-    # Paso 1: por cédula suma = 0 → SIN NOVEDAD
-    saldos_cedula     = df_cuenta.groupby(col_iden)[col_valor].sum()
-    cedulas_sin_novedad = set(saldos_cedula[abs(saldos_cedula) < 0.01].index)
-    mask_sin_novedad  = df_cuenta[col_iden].isin(cedulas_sin_novedad)
-    df_cuenta.loc[mask_sin_novedad, "concilia_con_id"] = "SIN NOVEDAD"
+    # ── PASO 1: Por cédula, suma = 0 → SIN NOVEDAD ──────────────────────
+    # Excluir cédulas vacías del agrupamiento
+    df_con_iden = df[df[col_iden] != ""].copy()
+    saldos_ced  = df_con_iden.groupby(col_iden)[col_valor].sum().round(2)
+    ced_sin_nov = set(saldos_ced[abs(saldos_ced) < 0.01].index)
 
-    # Paso 2: entre cédulas diferentes buscar parejas que sumen 0
-    df_pendiente   = df_cuenta[~mask_sin_novedad].copy()
-    saldos_pend    = df_pendiente.groupby(col_iden)[col_valor].sum()
-    cedulas_pend   = list(saldos_pend.index)
-    ya_conciliadas = set()
+    mask_sn = df[col_iden].isin(ced_sin_nov)
+    df.loc[mask_sn, "concilia_con_id"] = "SIN NOVEDAD"
+
+    # ── PASO 2: Entre cédulas diferentes buscar parejas que sumen 0 ──────
+    df_pend      = df[df["concilia_con_id"] == ""].copy()
+    saldos_pend  = df_pend[df_pend[col_iden] != ""].groupby(col_iden)[col_valor].sum().round(2)
+    cedulas_pend = list(saldos_pend.index)
+    ya_concil    = set()
 
     for i, ced_a in enumerate(cedulas_pend):
-        if ced_a in ya_conciliadas:
+        if ced_a in ya_concil:
             continue
         saldo_a = saldos_pend[ced_a]
         for ced_b in cedulas_pend[i+1:]:
-            if ced_b in ya_conciliadas:
+            if ced_b in ya_concil:
                 continue
             saldo_b = saldos_pend[ced_b]
-            if abs(saldo_a + saldo_b) < 0.01:
-                ids_a = df_pendiente[df_pendiente[col_iden] == ced_a][col_id].tolist() if col_id in df_pendiente.columns else [ced_a]
-                ids_b = df_pendiente[df_pendiente[col_iden] == ced_b][col_id].tolist() if col_id in df_pendiente.columns else [ced_b]
-                id_a  = str(ids_a[0]) if ids_a else ced_a
-                id_b  = str(ids_b[0]) if ids_b else ced_b
-                df_cuenta.loc[df_cuenta[col_iden] == ced_a, "concilia_con_id"] = id_b
-                df_cuenta.loc[df_cuenta[col_iden] == ced_b, "concilia_con_id"] = id_a
-                ya_conciliadas.add(ced_a)
-                ya_conciliadas.add(ced_b)
+            if abs(round(saldo_a + saldo_b, 2)) < 0.01:
+                # Obtener IDs de cada cédula (primer registro)
+                filas_a = df_pend[df_pend[col_iden] == ced_a]
+                filas_b = df_pend[df_pend[col_iden] == ced_b]
+                ids_a   = filas_a[col_id].tolist() if col_id in df_pend.columns else []
+                ids_b   = filas_b[col_id].tolist() if col_id in df_pend.columns else []
+
+                # Texto descriptivo del cruce
+                label_a = f"Concilia con ID {ids_b[0]}" if ids_b else f"Concilia con {ced_b}"
+                label_b = f"Concilia con ID {ids_a[0]}" if ids_a else f"Concilia con {ced_a}"
+
+                df.loc[df[col_iden] == ced_a, "concilia_con_id"] = label_a
+                df.loc[df[col_iden] == ced_b, "concilia_con_id"] = label_b
+                ya_concil.add(ced_a)
+                ya_concil.add(ced_b)
                 break
 
-    # Paso 3: resto → REVISAR
-    mask_revisar = df_cuenta["concilia_con_id"] == ""
-    df_cuenta.loc[mask_revisar, "concilia_con_id"] = "REVISAR"
+    # ── PASO 3: Resto → REVISAR ──────────────────────────────────────────
+    df.loc[df["concilia_con_id"] == "", "concilia_con_id"] = "REVISAR"
 
-    # REPORTE
-    n_sin_novedad = (df_cuenta["concilia_con_id"] == "SIN NOVEDAD").sum()
-    n_revisar     = (df_cuenta["concilia_con_id"] == "REVISAR").sum()
-    n_concilia    = total_movimientos - n_sin_novedad - n_revisar
+    # ── REPORTE ──────────────────────────────────────────────────────────
+    n_sin_nov  = (df["concilia_con_id"] == "SIN NOVEDAD").sum()
+    n_revisar  = (df["concilia_con_id"] == "REVISAR").sum()
+    n_concilia = total_movimientos - n_sin_nov - n_revisar
 
+    # Validar valores
+    val_sin_nov  = round(df[mask_sn][col_valor].sum(), 2)
+    val_concilia = round(df[df["concilia_con_id"].str.startswith("Concilia")][col_valor].sum(), 2)
+    val_revisar  = round(df[df["concilia_con_id"] == "REVISAR"][col_valor].sum(), 2)
+
+    _mostrar_resultado(df, codigo_cuenta, total_movimientos, n_sin_nov, n_concilia, n_revisar,
+                       val_sin_nov, val_concilia, val_revisar, suma_total)
+
+
+def _mostrar_resultado(df, codigo_cuenta, total, n_sn, n_conc, n_rev,
+                       val_sn=0, val_conc=0, val_rev=0, suma_total=0):
     st.markdown("---")
     st.markdown("#### 📊 Resumen de Conciliación")
+
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total movimientos",           f"{total_movimientos:,}")
-    c2.metric("✅ Sin novedad",              f"{n_sin_novedad:,}")
-    c3.metric("🔗 Concilia con otra cédula", f"{n_concilia:,}")
-    c4.metric("⚠️ Por revisar",              f"{n_revisar:,}")
+    c1.metric("Total movimientos",            f"{total:,}")
+    c2.metric("✅ Sin novedad",               f"{n_sn:,}",   f"${val_sn:,.2f}")
+    c3.metric("🔗 Concilia con otra cédula",  f"{n_conc:,}", f"${val_conc:,.2f}")
+    c4.metric("⚠️ Por revisar",               f"{n_rev:,}",  f"${val_rev:,.2f} de ${suma_total:,.2f}")
 
     st.markdown("#### 📋 Tabla de conciliación")
+    st.dataframe(df, use_container_width=True, height=400)
 
-    # Agregar columna concilia_con_id al df completo usando el id como índice
-    if "id" in df_cuenta.columns and "id" in df_cuenta_completo.columns:
-        mapa_concilia = dict(zip(df_cuenta["id"].astype(str), df_cuenta["concilia_con_id"]))
-        df_cuenta_completo["concilia_con_id"] = df_cuenta_completo["id"].astype(str).map(mapa_concilia).fillna("REVISAR")
-    else:
-        df_cuenta_completo["concilia_con_id"] = df_cuenta["concilia_con_id"].values
-
-    st.dataframe(df_cuenta_completo, use_container_width=True, height=400)
-
-    buf2 = io.BytesIO()
-    df_cuenta_completo.to_excel(buf2, index=False, sheet_name="CONCILIACION")
-    buf2.seek(0)
-    st.session_state["puentes_resultado_bytes"] = buf2.getvalue()
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False, sheet_name="CONCILIACION")
+    buf.seek(0)
+    st.session_state["puentes_resultado_bytes"] = buf.getvalue()
 
     st.download_button(
-        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta} ({len(df_cuenta_completo):,} registros)",
+        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta} ({len(df):,} registros)",
         data=st.session_state["puentes_resultado_bytes"],
         file_name=f"CONCILIACION_{codigo_cuenta}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -900,128 +866,111 @@ def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta):
     return pd.concat(frames, ignore_index=True)
 
 
-def _ejecutar_conciliacion_puentes(df_aux, codigo_cuenta):
-    col_cuenta = "codigocuenta"
-    col_valor  = "valor"
-    col_iden   = "identificacion"
-    col_id     = "id"
+def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
+    col_valor = "valor"
+    col_iden  = "identificacion"
+    col_id    = "id"
 
-    if col_cuenta not in df_aux.columns:
-        st.error("❌ No se encontró la columna 'codigocuenta' en el auxiliar.")
-        return
+    df = df_filtrado.copy()
+    df[col_valor] = pd.to_numeric(df[col_valor], errors="coerce").fillna(0)
 
-    # Usar df completo para el resultado si está disponible
-    df_completo = st.session_state.get("puentes_df_completo")
+    # Normalizar identificacion (quitar nulos)
+    df[col_iden] = df[col_iden].astype(str).str.strip().replace("nan","").replace("None","")
 
-    # Filtrar por cuenta en df reducido (para lógica) y en completo (para resultado)
-    df_cuenta = df_aux[
-        df_aux[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
-    ].copy().reset_index(drop=True)
-
-    # df completo filtrado para el resultado final
-    if df_completo is not None and col_cuenta in df_completo.columns:
-        df_cuenta_completo = df_completo[
-            df_completo[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()
-        ].copy().reset_index(drop=True)
-    else:
-        df_cuenta_completo = df_cuenta.copy()
-
-    if df_cuenta.empty:
-        st.warning(f"⚠️ No se encontraron movimientos para la cuenta **{codigo_cuenta}**.")
-        return
-
-    df_cuenta[col_valor] = pd.to_numeric(df_cuenta[col_valor], errors="coerce").fillna(0)
-    total_movimientos    = len(df_cuenta)
-    suma_total           = df_cuenta[col_valor].sum()
+    total_movimientos = len(df)
+    suma_total = round(df[col_valor].sum(), 2)
 
     st.markdown(f"**Cuenta:** `{codigo_cuenta}` | **Movimientos:** {total_movimientos:,} | **Suma total:** ${suma_total:,.2f}")
 
-    # CASO 1: CUENTA CONCILIADA
+    # ── CUENTA CONCILIADA ────────────────────────────────────────────────
     if abs(suma_total) < 0.01:
         st.success("✅ CUENTA CONCILIADA — La suma de todos los movimientos es 0.")
-        buf = io.BytesIO()
-        df_cuenta.to_excel(buf, index=False, sheet_name="CONCILIADA")
-        buf.seek(0)
-        st.download_button(
-            label=f"⬇️  Descargar movimientos cuenta {codigo_cuenta}",
-            data=buf.getvalue(),
-            file_name=f"CONCILIADA_{codigo_cuenta}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_cuenta_conciliada"
-        )
+        df["concilia_con_id"] = "CONCILIADA"
+        _mostrar_resultado(df, codigo_cuenta, total_movimientos, 0, total_movimientos, 0)
         return
 
-    # CASO 2: LÓGICA DE CONCILIACIÓN
     st.warning(f"⚠️ Suma ≠ 0 (${suma_total:,.2f}). Aplicando lógica de conciliación...")
 
-    df_cuenta["concilia_con_id"] = ""
+    df["concilia_con_id"] = ""
 
-    # Paso 1: por cédula suma = 0 → SIN NOVEDAD
-    saldos_cedula     = df_cuenta.groupby(col_iden)[col_valor].sum()
-    cedulas_sin_novedad = set(saldos_cedula[abs(saldos_cedula) < 0.01].index)
-    mask_sin_novedad  = df_cuenta[col_iden].isin(cedulas_sin_novedad)
-    df_cuenta.loc[mask_sin_novedad, "concilia_con_id"] = "SIN NOVEDAD"
+    # ── PASO 1: Por cédula, suma = 0 → SIN NOVEDAD ──────────────────────
+    # Excluir cédulas vacías del agrupamiento
+    df_con_iden = df[df[col_iden] != ""].copy()
+    saldos_ced  = df_con_iden.groupby(col_iden)[col_valor].sum().round(2)
+    ced_sin_nov = set(saldos_ced[abs(saldos_ced) < 0.01].index)
 
-    # Paso 2: entre cédulas diferentes buscar parejas que sumen 0
-    df_pendiente   = df_cuenta[~mask_sin_novedad].copy()
-    saldos_pend    = df_pendiente.groupby(col_iden)[col_valor].sum()
-    cedulas_pend   = list(saldos_pend.index)
-    ya_conciliadas = set()
+    mask_sn = df[col_iden].isin(ced_sin_nov)
+    df.loc[mask_sn, "concilia_con_id"] = "SIN NOVEDAD"
+
+    # ── PASO 2: Entre cédulas diferentes buscar parejas que sumen 0 ──────
+    df_pend      = df[df["concilia_con_id"] == ""].copy()
+    saldos_pend  = df_pend[df_pend[col_iden] != ""].groupby(col_iden)[col_valor].sum().round(2)
+    cedulas_pend = list(saldos_pend.index)
+    ya_concil    = set()
 
     for i, ced_a in enumerate(cedulas_pend):
-        if ced_a in ya_conciliadas:
+        if ced_a in ya_concil:
             continue
         saldo_a = saldos_pend[ced_a]
         for ced_b in cedulas_pend[i+1:]:
-            if ced_b in ya_conciliadas:
+            if ced_b in ya_concil:
                 continue
             saldo_b = saldos_pend[ced_b]
-            if abs(saldo_a + saldo_b) < 0.01:
-                ids_a = df_pendiente[df_pendiente[col_iden] == ced_a][col_id].tolist() if col_id in df_pendiente.columns else [ced_a]
-                ids_b = df_pendiente[df_pendiente[col_iden] == ced_b][col_id].tolist() if col_id in df_pendiente.columns else [ced_b]
-                id_a  = str(ids_a[0]) if ids_a else ced_a
-                id_b  = str(ids_b[0]) if ids_b else ced_b
-                df_cuenta.loc[df_cuenta[col_iden] == ced_a, "concilia_con_id"] = id_b
-                df_cuenta.loc[df_cuenta[col_iden] == ced_b, "concilia_con_id"] = id_a
-                ya_conciliadas.add(ced_a)
-                ya_conciliadas.add(ced_b)
+            if abs(round(saldo_a + saldo_b, 2)) < 0.01:
+                # Obtener IDs de cada cédula (primer registro)
+                filas_a = df_pend[df_pend[col_iden] == ced_a]
+                filas_b = df_pend[df_pend[col_iden] == ced_b]
+                ids_a   = filas_a[col_id].tolist() if col_id in df_pend.columns else []
+                ids_b   = filas_b[col_id].tolist() if col_id in df_pend.columns else []
+
+                # Texto descriptivo del cruce
+                label_a = f"Concilia con ID {ids_b[0]}" if ids_b else f"Concilia con {ced_b}"
+                label_b = f"Concilia con ID {ids_a[0]}" if ids_a else f"Concilia con {ced_a}"
+
+                df.loc[df[col_iden] == ced_a, "concilia_con_id"] = label_a
+                df.loc[df[col_iden] == ced_b, "concilia_con_id"] = label_b
+                ya_concil.add(ced_a)
+                ya_concil.add(ced_b)
                 break
 
-    # Paso 3: resto → REVISAR
-    mask_revisar = df_cuenta["concilia_con_id"] == ""
-    df_cuenta.loc[mask_revisar, "concilia_con_id"] = "REVISAR"
+    # ── PASO 3: Resto → REVISAR ──────────────────────────────────────────
+    df.loc[df["concilia_con_id"] == "", "concilia_con_id"] = "REVISAR"
 
-    # REPORTE
-    n_sin_novedad = (df_cuenta["concilia_con_id"] == "SIN NOVEDAD").sum()
-    n_revisar     = (df_cuenta["concilia_con_id"] == "REVISAR").sum()
-    n_concilia    = total_movimientos - n_sin_novedad - n_revisar
+    # ── REPORTE ──────────────────────────────────────────────────────────
+    n_sin_nov  = (df["concilia_con_id"] == "SIN NOVEDAD").sum()
+    n_revisar  = (df["concilia_con_id"] == "REVISAR").sum()
+    n_concilia = total_movimientos - n_sin_nov - n_revisar
 
+    # Validar valores
+    val_sin_nov  = round(df[mask_sn][col_valor].sum(), 2)
+    val_concilia = round(df[df["concilia_con_id"].str.startswith("Concilia")][col_valor].sum(), 2)
+    val_revisar  = round(df[df["concilia_con_id"] == "REVISAR"][col_valor].sum(), 2)
+
+    _mostrar_resultado(df, codigo_cuenta, total_movimientos, n_sin_nov, n_concilia, n_revisar,
+                       val_sin_nov, val_concilia, val_revisar, suma_total)
+
+
+def _mostrar_resultado(df, codigo_cuenta, total, n_sn, n_conc, n_rev,
+                       val_sn=0, val_conc=0, val_rev=0, suma_total=0):
     st.markdown("---")
     st.markdown("#### 📊 Resumen de Conciliación")
+
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total movimientos",           f"{total_movimientos:,}")
-    c2.metric("✅ Sin novedad",              f"{n_sin_novedad:,}")
-    c3.metric("🔗 Concilia con otra cédula", f"{n_concilia:,}")
-    c4.metric("⚠️ Por revisar",              f"{n_revisar:,}")
+    c1.metric("Total movimientos",            f"{total:,}")
+    c2.metric("✅ Sin novedad",               f"{n_sn:,}",   f"${val_sn:,.2f}")
+    c3.metric("🔗 Concilia con otra cédula",  f"{n_conc:,}", f"${val_conc:,.2f}")
+    c4.metric("⚠️ Por revisar",               f"{n_rev:,}",  f"${val_rev:,.2f} de ${suma_total:,.2f}")
 
     st.markdown("#### 📋 Tabla de conciliación")
+    st.dataframe(df, use_container_width=True, height=400)
 
-    # Agregar columna concilia_con_id al df completo usando el id como índice
-    if "id" in df_cuenta.columns and "id" in df_cuenta_completo.columns:
-        mapa_concilia = dict(zip(df_cuenta["id"].astype(str), df_cuenta["concilia_con_id"]))
-        df_cuenta_completo["concilia_con_id"] = df_cuenta_completo["id"].astype(str).map(mapa_concilia).fillna("REVISAR")
-    else:
-        df_cuenta_completo["concilia_con_id"] = df_cuenta["concilia_con_id"].values
-
-    st.dataframe(df_cuenta_completo, use_container_width=True, height=400)
-
-    buf2 = io.BytesIO()
-    df_cuenta_completo.to_excel(buf2, index=False, sheet_name="CONCILIACION")
-    buf2.seek(0)
-    st.session_state["puentes_resultado_bytes"] = buf2.getvalue()
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False, sheet_name="CONCILIACION")
+    buf.seek(0)
+    st.session_state["puentes_resultado_bytes"] = buf.getvalue()
 
     st.download_button(
-        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta} ({len(df_cuenta_completo):,} registros)",
+        label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta} ({len(df):,} registros)",
         data=st.session_state["puentes_resultado_bytes"],
         file_name=f"CONCILIACION_{codigo_cuenta}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
