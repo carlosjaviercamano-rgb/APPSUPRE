@@ -137,13 +137,13 @@ def render_cargue_auxiliares(key_prefix=""):
         st.session_state[key_archivos] = archivos
 
     archivos_cargados = st.session_state.get(key_archivos, [])
+    key_df = f"{key_prefix}_df_auxiliar"
 
     if archivos_cargados:
         st.success(f"✅ {len(archivos_cargados)} auxiliar(es) cargado(s):")
         for arch in archivos_cargados:
             st.caption(f"   📄 {arch.name}")
 
-        key_df = f"{key_prefix}_df_auxiliar"
 
         if st.button("🔗 Unir Auxiliares", key=f"btn_unir_{key_prefix}",
                      type="primary", use_container_width=True):
@@ -190,7 +190,6 @@ def render_cargue_auxiliares(key_prefix=""):
             return df_auxiliar
 
     # Si ya hay df en sesión aunque no haya archivos cargados, mostrar descarga
-    key_df = f"{key_prefix}_df_auxiliar"
     df_auxiliar = st.session_state.get(key_df)
     if df_auxiliar is not None:
         key_bytes = f"{key_prefix}_auxiliar_bytes"
