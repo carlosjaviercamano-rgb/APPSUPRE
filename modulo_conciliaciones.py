@@ -167,9 +167,28 @@ def render_cargue_auxiliares(key_prefix=""):
             with st.expander("👁️ Vista previa"):
                 st.dataframe(df_auxiliar.head(20), use_container_width=True)
 
-            # Botón descargar libro auxiliar
+            # Botón descargar libro auxiliar con formato de decimales
+            import openpyxl
+            from openpyxl.styles import numbers
             buf = io.BytesIO()
-            df_auxiliar.to_excel(buf, index=False, sheet_name="AUXILIARES")
+
+            # Escribir con openpyxl para aplicar formato
+            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                df_auxiliar.to_excel(writer, index=False, sheet_name="AUXILIARES")
+                ws = writer.sheets["AUXILIARES"]
+
+                # Columnas numéricas con 2 decimales
+                cols_decimales = ["valor", "baseimpuesto", "saldoanterior",
+                                  "debito", "credito", "saldoactual"]
+                # Encontrar índices de esas columnas
+                header = [c.value for c in ws[1]]
+                for col_idx, col_name in enumerate(header, start=1):
+                    if col_name in cols_decimales:
+                        for row in ws.iter_rows(min_row=2, min_col=col_idx,
+                                                max_col=col_idx, max_row=ws.max_row):
+                            for cell in row:
+                                cell.number_format = '#,##0.00'
+
             buf.seek(0)
             st.download_button(
                 label="⬇️  Descargar Libro Auxiliar unificado",
