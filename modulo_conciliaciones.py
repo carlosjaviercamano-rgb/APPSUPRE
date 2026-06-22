@@ -167,26 +167,43 @@ def render_cargue_auxiliares(key_prefix=""):
             with st.expander("👁️ Vista previa"):
                 st.dataframe(df_auxiliar.head(20), use_container_width=True)
 
-            # Preparar descarga con formato decimal
-            cols_decimales = ["valor", "baseimpuesto", "saldoanterior",
-                              "debito", "credito", "saldoactual"]
-            df_descarga = df_auxiliar.copy()
-            for col in cols_decimales:
-                if col in df_descarga.columns:
-                    df_descarga[col] = pd.to_numeric(df_descarga[col], errors="coerce").round(2)
-
-            buf = io.BytesIO()
-            df_descarga.to_excel(buf, index=False, sheet_name="AUXILIARES")
-            buf.seek(0)
+            # Generar bytes del Excel solo una vez y guardar en sesión
+            key_bytes = f"{key_prefix}_auxiliar_bytes"
+            if key_bytes not in st.session_state:
+                cols_decimales = ["valor", "baseimpuesto", "saldoanterior",
+                                  "debito", "credito", "saldoactual"]
+                df_descarga = df_auxiliar.copy()
+                for col in cols_decimales:
+                    if col in df_descarga.columns:
+                        df_descarga[col] = pd.to_numeric(df_descarga[col], errors="coerce").round(2)
+                buf = io.BytesIO()
+                df_descarga.to_excel(buf, index=False, sheet_name="AUXILIARES")
+                st.session_state[key_bytes] = buf.getvalue()
 
             st.download_button(
                 label="⬇️  Descargar Libro Auxiliar unificado",
-                data=buf.getvalue(),
+                data=st.session_state[key_bytes],
                 file_name="LIBRO_AUXILIAR.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key=f"dl_auxiliar_{key_prefix}"
             )
             return df_auxiliar
+
+    # Si ya hay df en sesión aunque no haya archivos cargados, mostrar descarga
+    df_auxiliar = st.session_state.get(key_df)
+    if df_auxiliar is not None:
+        key_bytes = f"{key_prefix}_auxiliar_bytes"
+        if key_bytes in st.session_state:
+            st.markdown("---")
+            st.info("📋 Libro Auxiliar previamente generado disponible para descarga.")
+            st.download_button(
+                label="⬇️  Descargar Libro Auxiliar unificado",
+                data=st.session_state[key_bytes],
+                file_name="LIBRO_AUXILIAR.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"dl_auxiliar_prev_{key_prefix}"
+            )
+        return df_auxiliar
 
     return None
 
