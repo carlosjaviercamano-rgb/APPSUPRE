@@ -413,16 +413,31 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
 
     df["concilia_con_id"] = ""
 
-    # ── PASO 1: Por cédula, suma = 0 → SIN NOVEDAD ──────────────────────
-    # Excluir cédulas vacías del agrupamiento
-    df_con_iden = df[df[col_iden] != ""].copy()
-    saldos_ced  = df_con_iden.groupby(col_iden)[col_valor].sum().round(2)
-    ced_sin_nov = set(saldos_ced[abs(saldos_ced) < 0.01].index)
+    # ── PASO 1: Pares exactos dentro de la misma cédula → SIN NOVEDAD ───
+    indices_sin_novedad = set()
 
-    mask_sn = df[col_iden].isin(ced_sin_nov)
-    df.loc[mask_sn, "concilia_con_id"] = "SIN NOVEDAD"
+    for ced, grupo in df[df[col_iden] != ""].groupby(col_iden):
+        positivos  = grupo[grupo[col_valor] > 0].copy()
+        negativos  = grupo[grupo[col_valor] < 0].copy()
+        usados_neg = set()
 
-    # ── PASO 2: Entre cédulas diferentes buscar parejas que sumen 0 ──────
+        for idx_p, row_p in positivos.iterrows():
+            if idx_p in indices_sin_novedad:
+                continue
+            val_p = round(row_p[col_valor], 2)
+            for idx_n, row_n in negativos.iterrows():
+                if idx_n in usados_neg:
+                    continue
+                val_n = round(row_n[col_valor], 2)
+                if abs(val_p + val_n) < 0.01:
+                    indices_sin_novedad.add(idx_p)
+                    indices_sin_novedad.add(idx_n)
+                    usados_neg.add(idx_n)
+                    break
+
+    df.loc[list(indices_sin_novedad), "concilia_con_id"] = "SIN NOVEDAD"
+
+    # ── PASO 2: Saldo neto restante, buscar parejas entre cédulas ────────
     df_pend      = df[df["concilia_con_id"] == ""].copy()
     saldos_pend  = df_pend[df_pend[col_iden] != ""].groupby(col_iden)[col_valor].sum().round(2)
     cedulas_pend = list(saldos_pend.index)
@@ -437,18 +452,14 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
                 continue
             saldo_b = saldos_pend[ced_b]
             if abs(round(saldo_a + saldo_b, 2)) < 0.01:
-                # Obtener IDs de cada cédula (primer registro)
                 filas_a = df_pend[df_pend[col_iden] == ced_a]
                 filas_b = df_pend[df_pend[col_iden] == ced_b]
                 ids_a   = filas_a[col_id].tolist() if col_id in df_pend.columns else []
                 ids_b   = filas_b[col_id].tolist() if col_id in df_pend.columns else []
-
-                # Texto descriptivo del cruce
                 label_a = f"Concilia con ID {ids_b[0]}" if ids_b else f"Concilia con {ced_b}"
                 label_b = f"Concilia con ID {ids_a[0]}" if ids_a else f"Concilia con {ced_a}"
-
-                df.loc[df[col_iden] == ced_a, "concilia_con_id"] = label_a
-                df.loc[df[col_iden] == ced_b, "concilia_con_id"] = label_b
+                df.loc[df_pend[df_pend[col_iden] == ced_a].index, "concilia_con_id"] = label_a
+                df.loc[df_pend[df_pend[col_iden] == ced_b].index, "concilia_con_id"] = label_b
                 ya_concil.add(ced_a)
                 ya_concil.add(ced_b)
                 break
