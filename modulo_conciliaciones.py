@@ -431,11 +431,20 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
                 ceds = [c for c,_ in combo]
                 vals = [v for _,v in combo]
                 if abs(round(sum(vals), 2)) < 0.01:
+                    # Para cada cédula, apuntar al ID del primer movimiento
+                    # de la cédula con el signo opuesto más cercano
+                    ids_por_ced = {}
                     for ced in ceds:
-                        otros  = [c for c in ceds if c != ced]
-                        filas  = df[df[col_iden] == otros[0]]
-                        id_ref = int(filas[col_id].iloc[0]) if not filas.empty and col_id in filas.columns else otros[0]
-                        concilia_map[ced] = f"Concilia con ID {id_ref}"
+                        saldo_ced = saldos_pend[ced]
+                        # Buscar la cédula del grupo con signo opuesto
+                        opuestas = [c for c in ceds if c != ced and saldos_pend[c] * saldo_ced < 0]
+                        if not opuestas:
+                            opuestas = [c for c in ceds if c != ced]
+                        filas = df[df[col_iden] == opuestas[0]]
+                        id_ref = int(filas[col_id].iloc[0]) if not filas.empty and col_id in filas.columns else opuestas[0]
+                        ids_por_ced[ced] = f"Concilia con ID {id_ref}"
+                    for ced, label in ids_por_ced.items():
+                        concilia_map[ced] = label
                     for ced in ceds:
                         del saldos_pend[ced]
                     encontrado = True
