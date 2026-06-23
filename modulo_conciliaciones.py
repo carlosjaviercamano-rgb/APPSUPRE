@@ -386,23 +386,20 @@ def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta):
 
 
 def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
+    from itertools import combinations
     col_valor = "valor"
     col_iden  = "identificacion"
     col_id    = "id"
 
     df = df_filtrado.copy()
     df[col_valor] = pd.to_numeric(df[col_valor], errors="coerce").fillna(0)
-
-    # Normalizar identificacion (quitar nulos)
-    df[col_iden] = df[col_iden].astype(str).str.strip()
-    df[col_iden] = df[col_iden].replace({"nan": "", "None": "", "NaN": ""})
+    df[col_iden]  = df[col_iden].astype(str).str.strip().replace({"nan":"","None":"","NaN":""})
 
     total_movimientos = len(df)
-    suma_total = round(df[col_valor].sum(), 2)
+    suma_total        = round(df[col_valor].sum(), 2)
 
     st.markdown(f"**Cuenta:** `{codigo_cuenta}` | **Movimientos:** {total_movimientos:,} | **Suma total:** ${suma_total:,.2f}")
 
-    # ── CUENTA CONCILIADA ────────────────────────────────────────────────
     if abs(suma_total) < 0.01:
         st.success("✅ CUENTA CONCILIADA — La suma de todos los movimientos es 0.")
         df["concilia_con_id"] = "CONCILIADA"
@@ -413,66 +410,47 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
 
     df["concilia_con_id"] = ""
 
-    # ── PASO 1: Pares exactos dentro de la misma cédula → SIN NOVEDAD ───
-    indices_sin_novedad = set()
+    # PASO 1: Tabla dinámica — saldo neto por cédula
+    saldos      = df[df[col_iden] != ""].groupby(col_iden)[col_valor].sum().round(2)
+    ced_sin_nov = set(saldos[abs(saldos) < 0.01].index)
+    ced_con_sal = {ced: round(sal,2) for ced,sal in saldos.items() if abs(sal) >= 0.01}
 
-    for ced, grupo in df[df[col_iden] != ""].groupby(col_iden):
-        positivos  = grupo[grupo[col_valor] > 0].copy()
-        negativos  = grupo[grupo[col_valor] < 0].copy()
-        usados_neg = set()
+    df.loc[df[col_iden].isin(ced_sin_nov), "concilia_con_id"] = "SIN NOVEDAD"
 
-        for idx_p, row_p in positivos.iterrows():
-            if idx_p in indices_sin_novedad:
-                continue
-            val_p = round(row_p[col_valor], 2)
-            for idx_n, row_n in negativos.iterrows():
-                if idx_n in usados_neg:
-                    continue
-                val_n = round(row_n[col_valor], 2)
-                if abs(val_p + val_n) < 0.01:
-                    indices_sin_novedad.add(idx_p)
-                    indices_sin_novedad.add(idx_n)
-                    usados_neg.add(idx_n)
+    # PASO 2: Saldos netos, buscar grupos que sumen 0 entre cédulas
+    saldos_pend  = dict(ced_con_sal)
+    concilia_map = {}
+
+    encontrado = True
+    while encontrado and len(saldos_pend) >= 2:
+        encontrado = False
+        items = list(saldos_pend.items())
+        for r in range(2, min(len(items)+1, 6)):
+            if encontrado: break
+            for combo in combinations(items, r):
+                ceds = [c for c,_ in combo]
+                vals = [v for _,v in combo]
+                if abs(round(sum(vals), 2)) < 0.01:
+                    for ced in ceds:
+                        otros  = [c for c in ceds if c != ced]
+                        filas  = df[df[col_iden] == otros[0]]
+                        id_ref = int(filas[col_id].iloc[0]) if not filas.empty and col_id in filas.columns else otros[0]
+                        concilia_map[ced] = f"Concilia con ID {id_ref}"
+                    for ced in ceds:
+                        del saldos_pend[ced]
+                    encontrado = True
                     break
 
-    df.loc[list(indices_sin_novedad), "concilia_con_id"] = "SIN NOVEDAD"
+    for ced, label in concilia_map.items():
+        mask = (df[col_iden] == ced) & (df["concilia_con_id"] == "")
+        df.loc[mask, "concilia_con_id"] = label
 
-    # ── PASO 2: Saldo neto restante, buscar parejas entre cédulas ────────
-    df_pend      = df[df["concilia_con_id"] == ""].copy()
-    saldos_pend  = df_pend[df_pend[col_iden] != ""].groupby(col_iden)[col_valor].sum().round(2)
-    cedulas_pend = list(saldos_pend.index)
-    ya_concil    = set()
-
-    for i, ced_a in enumerate(cedulas_pend):
-        if ced_a in ya_concil:
-            continue
-        saldo_a = saldos_pend[ced_a]
-        for ced_b in cedulas_pend[i+1:]:
-            if ced_b in ya_concil:
-                continue
-            saldo_b = saldos_pend[ced_b]
-            if abs(round(saldo_a + saldo_b, 2)) < 0.01:
-                filas_a = df_pend[df_pend[col_iden] == ced_a]
-                filas_b = df_pend[df_pend[col_iden] == ced_b]
-                ids_a   = filas_a[col_id].tolist() if col_id in df_pend.columns else []
-                ids_b   = filas_b[col_id].tolist() if col_id in df_pend.columns else []
-                label_a = f"Concilia con ID {ids_b[0]}" if ids_b else f"Concilia con {ced_b}"
-                label_b = f"Concilia con ID {ids_a[0]}" if ids_a else f"Concilia con {ced_a}"
-                df.loc[df_pend[df_pend[col_iden] == ced_a].index, "concilia_con_id"] = label_a
-                df.loc[df_pend[df_pend[col_iden] == ced_b].index, "concilia_con_id"] = label_b
-                ya_concil.add(ced_a)
-                ya_concil.add(ced_b)
-                break
-
-    # ── PASO 3: Resto → REVISAR ──────────────────────────────────────────
+    # PASO 3: Resto → REVISAR
     df.loc[df["concilia_con_id"] == "", "concilia_con_id"] = "REVISAR"
 
-    # ── REPORTE ──────────────────────────────────────────────────────────
     n_sin_nov  = (df["concilia_con_id"] == "SIN NOVEDAD").sum()
     n_revisar  = (df["concilia_con_id"] == "REVISAR").sum()
     n_concilia = total_movimientos - n_sin_nov - n_revisar
-
-    # Validar valores
     val_sin_nov  = round(df[df["concilia_con_id"] == "SIN NOVEDAD"][col_valor].sum(), 2)
     val_concilia = round(df[df["concilia_con_id"].str.startswith("Concilia")][col_valor].sum(), 2)
     val_revisar  = round(df[df["concilia_con_id"] == "REVISAR"][col_valor].sum(), 2)
