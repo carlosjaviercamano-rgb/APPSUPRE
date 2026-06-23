@@ -410,16 +410,45 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
 
     df["concilia_con_id"] = ""
 
-    # PASO 1: Tabla dinámica — saldo neto por cédula
-    saldos      = df[df[col_iden] != ""].groupby(col_iden)[col_valor].sum().round(2)
-    ced_sin_nov = set(saldos[abs(saldos) < 0.01].index)
-    ced_con_sal = {ced: round(sal,2) for ced,sal in saldos.items() if abs(sal) >= 0.01}
+    # PASO 1A: Pares exactos dentro de la misma cédula → SIN NOVEDAD
+    def _buscar_pares_internos(grupo):
+        pares = set()
+        pos = grupo[grupo[col_valor] > 0]
+        neg = grupo[grupo[col_valor] < 0]
+        usados = set()
+        for ip, rp in pos.iterrows():
+            if ip in pares: continue
+            vp = round(rp[col_valor], 2)
+            for inn, rn in neg.iterrows():
+                if inn in usados: continue
+                vn = round(rn[col_valor], 2)
+                if abs(vp + vn) < 0.01:
+                    pares.add(ip); pares.add(inn); usados.add(inn)
+                    break
+        return pares
 
-    df.loc[df[col_iden].isin(ced_sin_nov), "concilia_con_id"] = "SIN NOVEDAD"
+    indices_sn_interno = set()
+    for ced, grupo in df[df[col_iden] != ""].groupby(col_iden):
+        pares = _buscar_pares_internos(grupo)
+        indices_sn_interno.update(pares)
+    df.loc[list(indices_sn_interno), "concilia_con_id"] = "SIN NOVEDAD"
 
-    # PASO 2: Saldos netos, buscar grupos que sumen 0 entre cédulas
+    # PASO 1B: Saldo neto de cédulas restantes
+    df_resto = df[df["concilia_con_id"] == ""]
+    saldos_resto = df_resto[df_resto[col_iden] != ""].groupby(col_iden)[col_valor].sum().round(2)
+
+    # Cédulas cuyo saldo neto restante = 0 → SIN NOVEDAD
+    ced_sin_nov2 = set(saldos_resto[abs(saldos_resto) < 0.01].index)
+    mask_sn2 = (df[col_iden].isin(ced_sin_nov2)) & (df["concilia_con_id"] == "")
+    df.loc[mask_sn2, "concilia_con_id"] = "SIN NOVEDAD"
+
+    # Cédulas con saldo neto ≠ 0
+    ced_con_sal = {ced: round(sal,2) for ced,sal in saldos_resto.items()
+                   if abs(sal) >= 0.01 and ced not in ced_sin_nov2}
+
+    # PASO 2: Buscar grupos de cédulas cuyo saldo neto sume 0
     saldos_pend  = dict(ced_con_sal)
-    concilia_map = {}
+    concilia_map = {}  # cedula → (label, indices a marcar)
 
     encontrado = True
     while encontrado and len(saldos_pend) >= 2:
@@ -431,28 +460,38 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
                 ceds = [c for c,_ in combo]
                 vals = [v for _,v in combo]
                 if abs(round(sum(vals), 2)) < 0.01:
-                    # Para cada cédula, apuntar al ID del primer movimiento
-                    # de la cédula con el signo opuesto más cercano
-                    ids_por_ced = {}
                     for ced in ceds:
                         saldo_ced = saldos_pend[ced]
-                        # Buscar la cédula del grupo con signo opuesto
+                        # Buscar cédula opuesta
                         opuestas = [c for c in ceds if c != ced and saldos_pend[c] * saldo_ced < 0]
                         if not opuestas:
                             opuestas = [c for c in ceds if c != ced]
-                        filas = df[df[col_iden] == opuestas[0]]
-                        id_ref = int(filas[col_id].iloc[0]) if not filas.empty and col_id in filas.columns else opuestas[0]
-                        ids_por_ced[ced] = f"Concilia con ID {id_ref}"
-                    for ced, label in ids_por_ced.items():
-                        concilia_map[ced] = label
+                        ced_op   = opuestas[0]
+                        saldo_op = saldos_pend[ced_op]
+                        # Buscar movimiento de ced_op con valor = saldo_op
+                        filas_op  = df[(df[col_iden] == ced_op) & (df["concilia_con_id"] == "")]
+                        mov_exact = filas_op[abs(filas_op[col_valor] - saldo_op) < 0.01]
+                        if not mov_exact.empty:
+                            id_ref = int(mov_exact[col_id].iloc[0])
+                        else:
+                            mov_s = filas_op[filas_op[col_valor] * saldo_ced < 0]
+                            id_ref = int(mov_s[col_id].iloc[0]) if not mov_s.empty else int(filas_op[col_id].iloc[0]) if not filas_op.empty else ced_op
+                        concilia_map[ced] = (f"Concilia con ID {id_ref}", saldo_ced)
                     for ced in ceds:
                         del saldos_pend[ced]
                     encontrado = True
                     break
 
-    for ced, label in concilia_map.items():
-        mask = (df[col_iden] == ced) & (df["concilia_con_id"] == "")
-        df.loc[mask, "concilia_con_id"] = label
+    # Aplicar label solo al movimiento cuyo valor = saldo neto de esa cédula
+    for ced, (label, saldo_ced) in concilia_map.items():
+        filas_ced = df[(df[col_iden] == ced) & (df["concilia_con_id"] == "")]
+        # Buscar movimiento con valor = saldo neto
+        mov_exact = filas_ced[abs(filas_ced[col_valor] - saldo_ced) < 0.01]
+        if not mov_exact.empty:
+            df.loc[mov_exact.index, "concilia_con_id"] = label
+        else:
+            # Si no hay exacto, marcar todos los pendientes
+            df.loc[filas_ced.index, "concilia_con_id"] = label
 
     # PASO 3: Resto → REVISAR
     df.loc[df["concilia_con_id"] == "", "concilia_con_id"] = "REVISAR"
