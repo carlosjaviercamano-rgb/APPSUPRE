@@ -801,6 +801,39 @@ def render_generar_archivos():
 
     col1, col2 = st.columns(2)
 
+    # ── Exclusión de cédulas en planos ──────────────────────────────────
+    st.markdown("#### 🚫 Excluir cédulas de planos")
+    st.caption("Las cédulas excluidas no aparecerán en los planos pero sí en las compensaciones.")
+
+    if "cedulas_excluidas_planos" not in st.session_state:
+        st.session_state["cedulas_excluidas_planos"] = []
+
+    col_exc, col_add = st.columns([3, 1])
+    with col_exc:
+        nueva_exc = st.text_input(
+            "Cédula a excluir:",
+            key="input_cedula_excluir",
+            placeholder="Ingresa la cédula",
+            label_visibility="collapsed"
+        )
+    with col_add:
+        if st.button("➕ Agregar", key="btn_agregar_excluir", use_container_width=True):
+            if nueva_exc.strip() and nueva_exc.strip() not in st.session_state["cedulas_excluidas_planos"]:
+                st.session_state["cedulas_excluidas_planos"].append(nueva_exc.strip())
+                st.rerun()
+
+    if st.session_state["cedulas_excluidas_planos"]:
+        for i, ced in enumerate(st.session_state["cedulas_excluidas_planos"]):
+            col_c, col_x = st.columns([4, 1])
+            with col_c:
+                st.caption(f"🚫 {ced}")
+            with col_x:
+                if st.button("✕", key=f"del_exc_{i}"):
+                    st.session_state["cedulas_excluidas_planos"].pop(i)
+                    st.rerun()
+
+    st.markdown("---")
+
     with col1:
         st.markdown("#### 📄 Planos por empresa")
         st.caption("Genera CashReceipt, Services y PaymentMethod para cada empresa.")
@@ -814,7 +847,8 @@ def render_generar_archivos():
                         st.session_state.df_sheet1,
                         st.session_state.config,
                         st.session_state.df_area_banco,
-                        st.session_state.tipo_pago
+                        st.session_state.tipo_pago,
+                        st.session_state.get("cedulas_excluidas_planos", [])
                     )
                     st.success(f"✅ {resultado}")
                 except Exception as e:
