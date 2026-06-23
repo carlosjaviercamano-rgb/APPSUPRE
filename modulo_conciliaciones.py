@@ -309,7 +309,7 @@ def _render_conciliar_puentes():
     st.markdown("### 🔍 Conciliación Cuentas Puentes / Transitorias")
     st.caption(f"📂 {len(archivos)} auxiliar(es) cargado(s). Ingresa la cuenta y filtra solo esos datos.")
 
-    col_inp, col_btn = st.columns([3, 1])
+    col_inp, col_btn, col_lim = st.columns([3, 1, 1])
     with col_inp:
         codigo_cuenta = st.text_input(
             "Código de cuenta a conciliar (codigocuenta):",
@@ -321,6 +321,13 @@ def _render_conciliar_puentes():
         st.markdown("<br>", unsafe_allow_html=True)
         ejecutar = st.button("🔍 Filtrar y Conciliar", type="primary",
                              use_container_width=True, key="btn_conciliar_puentes")
+    with col_lim:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔄 Limpiar", use_container_width=True, key="limpiar_conciliar_puentes"):
+            st.session_state["puentes_df_filtrado"] = None
+            st.session_state["puentes_cuenta"]      = ""
+            st.session_state["puentes_resultado_bytes"] = None
+            st.rerun()
 
     if ejecutar and codigo_cuenta.strip():
         st.session_state["puentes_cuenta"] = codigo_cuenta.strip()
@@ -600,6 +607,12 @@ def render_puentes():
 def _render_carga_auxiliares_puentes():
     st.markdown("#### 📂 Auxiliares")
     st.caption("Sube hasta 15 auxiliares. La app filtrará solo la cuenta que necesitas.")
+
+    col_up, col_lim = st.columns([3, 1])
+    with col_lim:
+        if st.button("🔄 Limpiar archivos", key="limpiar_aux_puentes", use_container_width=True):
+            st.session_state["puentes_auxiliares"] = []
+            st.rerun()
 
     archivos = st.file_uploader(
         "Selecciona los auxiliares (.xlsx)",
