@@ -473,7 +473,7 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
     n_concilia = total_movimientos - n_sin_nov - n_revisar
 
     # Validar valores
-    val_sin_nov  = round(df[mask_sn][col_valor].sum(), 2)
+    val_sin_nov  = round(df[df["concilia_con_id"] == "SIN NOVEDAD"][col_valor].sum(), 2)
     val_concilia = round(df[df["concilia_con_id"].str.startswith("Concilia")][col_valor].sum(), 2)
     val_revisar  = round(df[df["concilia_con_id"] == "REVISAR"][col_valor].sum(), 2)
 
