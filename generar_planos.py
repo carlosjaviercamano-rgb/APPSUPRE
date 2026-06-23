@@ -22,7 +22,7 @@ METODO_PAGO = {
 }
 
 
-def crear_planos(df_sheet1, config, df_area_banco, tipo_pago):
+def crear_planos(df_sheet1, config, df_area_banco, tipo_pago, cedulas_excluidas=None):
     if df_sheet1 is None or df_sheet1.empty:
         raise ValueError("No hay datos en Sheet1 para generar planos.")
 
@@ -39,11 +39,22 @@ def crear_planos(df_sheet1, config, df_area_banco, tipo_pago):
 
     archivos_generados = []
 
+    # Normalizar lista de exclusiones
+    excluidas = [str(c).strip() for c in (cedulas_excluidas or [])]
+
     for empresa in EMPRESAS:
         # Filtrar por empresa (columna COMPANY)
         df_emp = df_sheet1[
             df_sheet1["COMPANY"].astype(str).str.strip().str.upper() == empresa.upper()
-        ].copy().reset_index(drop=True)
+        ].copy()
+
+        # Excluir cédulas indicadas
+        if excluidas and "IDEN" in df_emp.columns:
+            df_emp = df_emp[
+                ~df_emp["IDEN"].astype(str).str.strip().isin(excluidas)
+            ]
+
+        df_emp = df_emp.reset_index(drop=True)
 
         if df_emp.empty:
             continue
@@ -106,7 +117,7 @@ def _construir_cash_receipt(df, empresa):
         rows.append({
             "id":                          consecutivo,
             "codigoTipoDocumento":         "DC",
-            "codigoCentroCosto":           104,
+            "codigoCentroCosto":           102,
             "fechaDocumento":              _fecha(row.get("FECHA_DOCUMENTO")),
             "fechaPago":                   _fecha(row.get("FECHA")),
             "detalle":                     row.get("DETALLE", ""),
