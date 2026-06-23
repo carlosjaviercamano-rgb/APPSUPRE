@@ -546,3 +546,52 @@ def render_qr_credibanco():
 
     with tab2:
         _render_conciliar_puentes()
+
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# SUBMÓDULO 3: CUENTAS PUENTES / TRANSITORIAS
+# ══════════════════════════════════════════════════════════════════════════
+def render_puentes():
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);border-radius:10px;
+                padding:1rem 1.5rem;margin-bottom:1rem;">
+        <h3 style="color:#fff;margin:0">🔄 Cuentas Puentes / Transitorias</h3>
+        <p style="color:#93c5fd;margin:0.2rem 0 0 0;font-size:0.85rem">
+            Solo Libro Auxiliar</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    tab1, tab2 = st.tabs(["📂 1. Cargar Archivos", "🔍 2. Conciliar"])
+
+    with tab1:
+        _render_carga_auxiliares_puentes()
+
+    with tab2:
+        _render_conciliar_puentes()
+
+
+def _render_carga_auxiliares_puentes():
+    st.markdown("#### 📂 Auxiliares")
+    st.caption("Sube hasta 15 auxiliares. La app filtrará solo la cuenta que necesitas.")
+
+    archivos = st.file_uploader(
+        "Selecciona los auxiliares (.xlsx)",
+        type=["xlsx"],
+        accept_multiple_files=True,
+        key="up_puentes_auxiliares",
+        label_visibility="collapsed"
+    )
+
+    if archivos:
+        if len(archivos) > 15:
+            st.warning("⚠️ Máximo 15 auxiliares.")
+            archivos = archivos[:15]
+        st.session_state["puentes_auxiliares"] = archivos
+
+    cargados = st.session_state.get("puentes_auxiliares", [])
+    if cargados:
+        st.success(f"✅ {len(cargados)} auxiliar(es) listos.")
+        for a in cargados:
+            st.caption(f"   📄 {a.name}")
+        st.info("👉 Ve a la pestaña **2. Conciliar**, ingresa el código de cuenta y filtra.")
