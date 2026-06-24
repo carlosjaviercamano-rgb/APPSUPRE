@@ -384,6 +384,5 @@ elif modulo == "conciliacion":
     from modulo_conciliaciones import render as render_conciliacion
     render_conciliacion()
 elif modulo == "dashboard":
-    from modulo_dashboard import render as render_dashboard
+    import importlib, modulo_dashboard; importlib.reload(modulo_dashboard); from modulo_dashboard import render as render_dashboard
     render_dashboard()
-      
