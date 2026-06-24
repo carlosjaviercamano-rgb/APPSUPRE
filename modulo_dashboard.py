@@ -558,9 +558,9 @@ def _generar_html_corresponsal(stats, comision):
     ident  = stats["identificadas"]
     reinc  = stats["reincidentes"]
     nuevos = stats["nuevos"]
-    # % sobre identificados
+    # % sobre identificados — garantizar que sumen 100%
     pct_reinc = round(reinc/ident*100, 1) if ident else 0
-    pct_nuevo = round(nuevos/ident*100, 1) if ident else 0
+    pct_nuevo = round(100 - pct_reinc, 1) if ident else 0
     pct_ident = round(ident/trans*100, 1) if trans else 0
     com_fmt   = "${:,.0f}".format(comision).replace(",",".")
     mes_idx   = MESES.index(mes)  # 0-based
@@ -649,10 +649,14 @@ def _generar_html_corresponsal(stats, comision):
                 # Solo hasta el mes trabajado
                 if m <= mes_idx:
                     d26t[m] = d["trans"]; d26c[m] = d["com"]
+                    # Variación: solo meses activos, resto queda null
                     dv6[m]  = d["var_e"]
                     dvc[m]  = "#1D9E75" if d["var_e"] >= 0 else "#D85A30"
         except Exception:
             pass
+
+    # Variación: convertir meses futuros a null
+    dv6_js = ["null" if i > mes_idx else str(v) for i, v in enumerate(dv6)]
 
     # Tabla historica (desc)
     hist_rows = [d for d in hist_data if "TOTAL" not in str(d["anio"]).upper()]
@@ -700,7 +704,7 @@ def _generar_html_corresponsal(stats, comision):
     jd26t = "[{}]".format(",".join(str(x) for x in d26t))
     jd25c = json.dumps(d25c)
     jd26c = json.dumps(d26c)
-    jdv6  = json.dumps(dv6)
+    jdv6  = "[{}]".format(",".join(dv6_js))
     jdvc  = json.dumps(dvc)
 
     css = """*{box-sizing:border-box;margin:0;padding:0}
