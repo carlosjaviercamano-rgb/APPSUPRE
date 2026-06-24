@@ -867,9 +867,12 @@ new Chart(document.getElementById('c1'),{{
   options:{{...CFG,scales:{{y:{{ticks:{{callback:fmtK}}}}}}}}
 }});
 
+var ML4=ML.slice(0,{mesidx});
+var DV6_4=DV6.slice(0,{mesidx});
+var DVC_4=DVC.slice(0,{mesidx});
 new Chart(document.getElementById('c4'),{{
   type:'bar',
-  data:{{labels:ML,datasets:[{{data:DV6,backgroundColor:DVC}}]}},
+  data:{{labels:ML4,datasets:[{{data:DV6_4,backgroundColor:DVC_4}}]}},
   options:{{...CFG,scales:{{y:{{ticks:{{callback:fmtK}}}}}}}}
 }});
 
@@ -910,7 +913,8 @@ function descargarExcel(){{
         com_fmt=com_fmt, var_mes_str=var_mes_str,
         fh=fh, fc=fc, n_ced=n_ced,
         jml=jml, jd25t=jd25t, jd26t=jd26t,
-        jd25c=jd25c, jd26c=jd26c, jdv6=jdv6, jdvc=jdvc
+        jd25c=jd25c, jd26c=jd26c, jdv6=jdv6, jdvc=jdvc,
+        mesidx=mes_idx + 1
     )
     return html.encode("utf-8")
 
