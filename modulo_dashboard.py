@@ -302,9 +302,9 @@ def _procesar_corresponsal(libro, informe, mes, anio):
 
 def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
     """Actualiza el Excel del informe corresponsal."""
-    # Leer con estilos (data_only=False para preservar formatos)
+    # Leer con estilos preservando formatos pero sin evaluar fórmulas
     informe_file.seek(0)
-    wb = openpyxl.load_workbook(informe_file, data_only=False)
+    wb = openpyxl.load_workbook(informe_file, data_only=False, keep_vba=False)
 
     # ── HOJA TRANSFERENCIAS CORRESPONSAL ────────────────────────────────
     ws_trans = wb["TRANSFERENCIAS CORRESPONSAL"]
@@ -426,7 +426,8 @@ def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
     fila_ref_com  = nueva_fila - 1
     ws_com.insert_rows(nueva_fila)
 
-    # Copiar formato de fila anterior y escribir valores con fórmulas
+    # Fórmulas: G y H siempre 12 filas atrás (mismo mes año anterior)
+    fila_anio_ant = nueva_fila - 12
     valores_com = {
         1: anio,
         2: mes,
@@ -434,8 +435,8 @@ def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
         4: comision,
         5: f"=+D{nueva_fila}-D{nueva_fila-1}",
         6: f"=+(D{nueva_fila}-D{nueva_fila-1})/D{nueva_fila-1}",
-        7: f"=+D{nueva_fila}-D{nueva_fila - (MESES.index(mes)+1 + 12)}",
-        8: f"=+(D{nueva_fila}-D{nueva_fila - (MESES.index(mes)+1 + 12)})/D{nueva_fila - (MESES.index(mes)+1 + 12)}",
+        7: f"=+D{nueva_fila}-D{fila_anio_ant}",
+        8: f"=+(D{nueva_fila}-D{fila_anio_ant})/D{fila_anio_ant}",
     }
     for col_idx, val in valores_com.items():
         new_cell = ws_com.cell(row=nueva_fila, column=col_idx, value=val)
