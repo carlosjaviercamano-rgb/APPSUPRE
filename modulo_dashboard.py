@@ -547,6 +547,9 @@ def _render_dashboard_corresponsal():
 
 
 
+def _generar_html_corresponsal(stats, comision):
+
+
     html = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
