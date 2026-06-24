@@ -346,16 +346,28 @@ def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
             # D permanece igual
             row[4].value = None      # Limpiar observación
 
-    # Agregar cédulas nuevas al final
+    # Agregar cédulas nuevas copiando formato de fila existente
+    fila_ref_trans = 2  # fila de referencia para copiar formato
     ultima_fila = ws_trans.max_row
     for ced, act in actualizaciones.items():
         if ced not in cedulas_en_hist:
             ultima_fila += 1
-            ws_trans.cell(row=ultima_fila, column=1, value=int(ced) if ced.isdigit() else ced)
-            ws_trans.cell(row=ultima_fila, column=2, value=act["hist_ant"])
-            ws_trans.cell(row=ultima_fila, column=3, value=act["trans_mes"])
-            ws_trans.cell(row=ultima_fila, column=4, value=act["hist_act"])
-            ws_trans.cell(row=ultima_fila, column=5, value=act["obs"])
+            valores = [
+                int(ced) if ced.isdigit() else ced,
+                act["hist_ant"], act["trans_mes"],
+                act["hist_act"], act["obs"]
+            ]
+            for col_idx, val in enumerate(valores, start=1):
+                new_cell = ws_trans.cell(row=ultima_fila, column=col_idx, value=val)
+                # Copiar formato de celda de referencia
+                ref_cell = ws_trans.cell(row=fila_ref_trans, column=col_idx)
+                if ref_cell.has_style:
+                    from copy import copy
+                    new_cell.font      = copy(ref_cell.font)
+                    new_cell.border    = copy(ref_cell.border)
+                    new_cell.fill      = copy(ref_cell.fill)
+                    new_cell.number_format = ref_cell.number_format
+                    new_cell.alignment = copy(ref_cell.alignment)
 
     # Actualizar tabla resumen fila 3 cols G-L
     ws_trans["G3"] = stats["transacciones"]
@@ -406,17 +418,23 @@ def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
                 var_anio_pct = var_anio_val / com_anio_ant if com_anio_ant else 0
             break
 
-    # Insertar nueva fila antes del TOTAL
+    # Insertar nueva fila antes del TOTAL copiando formato
     nueva_fila = fila_total
     ws_com.insert_rows(nueva_fila)
-    ws_com.cell(row=nueva_fila, column=1, value=anio)
-    ws_com.cell(row=nueva_fila, column=2, value=mes)
-    ws_com.cell(row=nueva_fila, column=3, value=stats["transacciones"])
-    ws_com.cell(row=nueva_fila, column=4, value=comision)
-    ws_com.cell(row=nueva_fila, column=5, value=var_mes_ant_val)
-    ws_com.cell(row=nueva_fila, column=6, value=round(var_mes_ant_pct, 4))
-    ws_com.cell(row=nueva_fila, column=7, value=var_anio_val)
-    ws_com.cell(row=nueva_fila, column=8, value=round(var_anio_pct, 4))
+    valores_com = [anio, mes, stats["transacciones"], comision,
+                   var_mes_ant_val, round(var_mes_ant_pct, 4),
+                   var_anio_val, round(var_anio_pct, 4)]
+    fila_ref_com = nueva_fila - 1  # fila anterior como referencia
+    from copy import copy
+    for col_idx, val in enumerate(valores_com, start=1):
+        new_cell = ws_com.cell(row=nueva_fila, column=col_idx, value=val)
+        ref_cell = ws_com.cell(row=fila_ref_com, column=col_idx)
+        if ref_cell.has_style:
+            new_cell.font         = copy(ref_cell.font)
+            new_cell.border       = copy(ref_cell.border)
+            new_cell.fill         = copy(ref_cell.fill)
+            new_cell.number_format = ref_cell.number_format
+            new_cell.alignment    = copy(ref_cell.alignment)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -433,6 +451,7 @@ def _ultimo_dia_mes(mes, anio):
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════
 # DASHBOARD VISUAL
 # ══════════════════════════════════════════════════════════════════════════
 def _render_dashboard_corresponsal():
@@ -445,31 +464,155 @@ def _render_dashboard_corresponsal():
     anio = stats["anio"]
     com  = st.session_state.get("corr_comision_val", 0)
 
+    if not com:
+        st.warning("⚠️ Ingresa la comisión en la pestaña 1 antes de ver el dashboard.")
+        return
+
     st.markdown(f"### Corresponsal Bancolombia — {mes} {anio}")
 
-    # KPIs
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Total transacciones", f"{stats['transacciones']:,}")
     c2.metric("Sin identificar",     f"{stats['sin_identificar']:,}")
-    c3.metric("Identificadas",        f"{stats['identificadas']:,}")
-    c4.metric("Reincidentes",         f"{stats['reincidentes']:,}")
-    c5.metric("Nuevos",               f"{stats['nuevos']:,}")
-    c6.metric("Comisión",             f"${com:,.0f}" if com else "—")
+    c3.metric("Identificadas",       f"{stats['identificadas']:,}")
+    c4.metric("Reincidentes",        f"{stats['reincidentes']:,}")
+    c5.metric("Nuevos",              f"{stats['nuevos']:,}")
+    c6.metric("Comisión",            f"${com:,.0f}")
 
     st.markdown("---")
-
-    # Tabla de cédulas del mes
     st.markdown("#### 📋 Cédulas del mes")
     actualizaciones = stats.get("actualizaciones", {})
     if actualizaciones:
         df_tabla = pd.DataFrame([
             {
-                "Cédula":       ced,
+                "Cédula":         ced,
                 "Hist. anterior": act["hist_ant"],
-                "Trans. mes":   act["trans_mes"],
-                "Hist. actual": act["hist_act"],
-                "Observación":  act["obs"]
+                "Trans. mes":     act["trans_mes"],
+                "Hist. actual":   act["hist_act"],
+                "Observación":    act["obs"]
             }
             for ced, act in actualizaciones.items()
         ])
         st.dataframe(df_tabla, use_container_width=True, height=400)
+
+    st.markdown("---")
+    st.markdown("#### 🌐 Dashboard HTML")
+    st.caption("Genera el dashboard visual para compartir como archivo HTML.")
+
+    if st.button("🌐 Generar Dashboard HTML", type="primary",
+                 use_container_width=True, key="btn_html_corr"):
+        html = _generar_html_corresponsal(stats, com)
+        st.session_state["corr_html"] = html
+
+    if st.session_state.get("corr_html"):
+        st.download_button(
+            label="⬇️  Descargar Dashboard HTML",
+            data=st.session_state["corr_html"],
+            file_name=f"Dashboard_Corresponsal_{mes}_{anio}.html",
+            mime="text/html",
+            key="dl_corr_html"
+        )
+        st.success("✅ Dashboard listo. Descárgalo y ábrelo en tu navegador.")
+
+
+def _generar_html_corresponsal(stats, comision):
+    mes   = stats["mes"]
+    anio  = stats["anio"]
+    trans = stats["transacciones"]
+    sin_id = stats["sin_identificar"]
+    ident  = stats["identificadas"]
+    reinc  = stats["reincidentes"]
+    nuevos = stats["nuevos"]
+    com_fmt = f"${comision:,.0f}".replace(",",".")
+    pct_reinc = round(reinc/ident*100, 1) if ident else 0
+    pct_nuevo = round(nuevos/ident*100, 1) if ident else 0
+    pct_ident = round(ident/trans*100, 1) if trans else 0
+
+    filas_ced = ""
+    for i, (ced, act) in enumerate(stats["actualizaciones"].items(), start=1):
+        obs  = act["obs"]
+        pill = "pill-rei" if obs == "REICIDENTE" else "pill-nuevo"
+        filas_ced += f"<tr><td>{i}</td><td>{ced}</td><td>{act['hist_ant']}</td><td>{act['trans_mes']}</td><td>{act['hist_act']}</td><td><span class='pill {pill}'>{obs}</span></td></tr>"
+
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Corresponsal Bancolombia &mdash; {mes} {anio}</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f2;color:#1a1a1a;padding:24px 16px}}
+.db-wrap{{max-width:960px;margin:0 auto}}
+.db-header{{display:flex;align-items:baseline;gap:12px;margin-bottom:1.5rem;flex-wrap:wrap}}
+.db-title{{font-size:20px;font-weight:500}}
+.db-badge{{font-size:11px;padding:3px 10px;border-radius:20px;background:#eaf3de;color:#3B6D11;font-weight:500}}
+.db-section{{font-size:11px;font-weight:500;color:#888;text-transform:uppercase;letter-spacing:.06em;margin:1.75rem 0 .75rem;border-bottom:0.5px solid rgba(0,0,0,0.1);padding-bottom:6px}}
+.kpi-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-bottom:1rem}}
+.kpi{{background:#fff;border:0.5px solid rgba(0,0,0,0.1);border-radius:10px;padding:14px 16px}}
+.kpi-label{{font-size:12px;color:#777;margin:0 0 5px}}
+.kpi-val{{font-size:24px;font-weight:500;margin:0;line-height:1.2}}
+.kpi-sub{{font-size:11px;color:#aaa;margin:4px 0 0}}
+.chart-card{{background:#fff;border:0.5px solid rgba(0,0,0,0.1);border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem}}
+.chart-title{{font-size:14px;font-weight:500;margin:0 0 14px}}
+table.dt{{width:100%;border-collapse:collapse;font-size:13px}}
+table.dt th{{text-align:left;font-weight:500;color:#555;padding:8px 10px;border-bottom:1px solid rgba(0,0,0,0.1);white-space:nowrap;background:#fafaf8;position:sticky;top:0}}
+table.dt td{{padding:6px 10px;border-bottom:0.5px solid rgba(0,0,0,0.06)}}
+table.dt tr:hover td{{background:#fafaf8}}
+.pill{{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500}}
+.pill-rei{{background:#e6f1fb;color:#185FA5}}
+.pill-nuevo{{background:#eaf3de;color:#3B6D11}}
+.controls{{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}}
+.controls input,.controls select{{padding:7px 12px;border:0.5px solid rgba(0,0,0,0.2);border-radius:8px;font-size:13px;outline:none;background:#fff}}
+.controls input{{width:220px}}
+.scroll{{max-height:460px;overflow-y:auto;border-radius:8px;border:0.5px solid rgba(0,0,0,0.1)}}
+.note-box{{background:#e6f1fb;border:0.5px solid #b5d4f4;border-radius:8px;padding:10px 14px;font-size:12px;color:#0C447C;margin-top:1rem}}
+</style>
+</head>
+<body>
+<div class="db-wrap">
+  <div class="db-header">
+    <p class="db-title">Corresponsal Bancolombia</p>
+    <span class="db-badge">{mes} {anio}</span>
+  </div>
+  <p class="db-section">Transferencias corresponsal &mdash; {mes} {anio}</p>
+  <div class="kpi-grid">
+    <div class="kpi"><p class="kpi-label">Total transacciones</p><p class="kpi-val">{trans}</p><p class="kpi-sub">mes de {mes} {anio}</p></div>
+    <div class="kpi"><p class="kpi-label">Sin identificar</p><p class="kpi-val">{sin_id}</p><p class="kpi-sub">de {trans} transacciones</p></div>
+    <div class="kpi"><p class="kpi-label">Identificadas</p><p class="kpi-val">{ident}</p><p class="kpi-sub">{pct_ident}% del total</p></div>
+    <div class="kpi"><p class="kpi-label">Reincidentes</p><p class="kpi-val">{reinc}</p><p class="kpi-sub">{pct_reinc}% de identificados</p></div>
+    <div class="kpi"><p class="kpi-label">Nuevos</p><p class="kpi-val">{nuevos}</p><p class="kpi-sub">{pct_nuevo}% de identificados</p></div>
+    <div class="kpi"><p class="kpi-label">Comisi&oacute;n {mes}</p><p class="kpi-val">{com_fmt}</p></div>
+  </div>
+  <p class="db-section">Base de clientes ({len(stats['actualizaciones'])} registros)</p>
+  <div class="chart-card">
+    <div class="controls">
+      <input type="text" id="s" placeholder="Buscar c&eacute;dula..." oninput="f()">
+      <select id="o" onchange="f()">
+        <option value="">Todos</option>
+        <option value="REICIDENTE">Solo reincidentes</option>
+        <option value="NUEVO">Solo nuevos</option>
+      </select>
+    </div>
+    <div class="scroll">
+      <table class="dt">
+        <thead><tr><th>#</th><th>C&eacute;dula</th><th>Hist. anterior</th><th>Trans. {mes}</th><th>Hist. actual</th><th>Observaci&oacute;n</th></tr></thead>
+        <tbody id="tb">{filas_ced}</tbody>
+      </table>
+    </div>
+  </div>
+  <div class="note-box"><strong>Nota:</strong> Del total de recaudo por corresponsal se est&aacute; exento de las primeras 50 transacciones.</div>
+</div>
+<script>
+function f(){{
+  var s=document.getElementById('s').value.toLowerCase();
+  var o=document.getElementById('o').value;
+  document.querySelectorAll('#tb tr').forEach(function(r){{
+    var c=r.cells[1].textContent.toLowerCase();
+    var v=r.cells[5].textContent.trim();
+    r.style.display=(c.includes(s)&&(!o||v===o))?'':'none';
+  }});
+}}
+</script>
+</body>
+</html>"""
+    return html.encode("utf-8")
