@@ -346,28 +346,40 @@ def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
             # D permanece igual
             row[4].value = None      # Limpiar observación
 
-    # Agregar cédulas nuevas copiando formato de fila existente
-    fila_ref_trans = 2  # fila de referencia para copiar formato
+    # Agregar cédulas nuevas copiando formato exacto de fila 2
+    from copy import copy
+    from openpyxl.styles import Font, Border, Side, PatternFill, Alignment, numbers
+    # Leer estilos de referencia de fila 2
+    ref_styles = {}
+    for col_idx in range(1, 6):
+        ref_cell = ws_trans.cell(row=2, column=col_idx)
+        ref_styles[col_idx] = {
+            "font":           copy(ref_cell.font),
+            "border":         copy(ref_cell.border),
+            "fill":           copy(ref_cell.fill),
+            "number_format":  ref_cell.number_format,
+            "alignment":      copy(ref_cell.alignment),
+        }
+
     ultima_fila = ws_trans.max_row
     for ced, act in actualizaciones.items():
         if ced not in cedulas_en_hist:
             ultima_fila += 1
             valores = [
                 int(ced) if ced.isdigit() else ced,
-                act["hist_ant"], act["trans_mes"],
-                act["hist_act"], act["obs"]
+                act["hist_ant"],
+                act["trans_mes"],
+                act["hist_act"],
+                act["obs"]
             ]
             for col_idx, val in enumerate(valores, start=1):
                 new_cell = ws_trans.cell(row=ultima_fila, column=col_idx, value=val)
-                # Copiar formato de celda de referencia
-                ref_cell = ws_trans.cell(row=fila_ref_trans, column=col_idx)
-                if ref_cell.has_style:
-                    from copy import copy
-                    new_cell.font      = copy(ref_cell.font)
-                    new_cell.border    = copy(ref_cell.border)
-                    new_cell.fill      = copy(ref_cell.fill)
-                    new_cell.number_format = ref_cell.number_format
-                    new_cell.alignment = copy(ref_cell.alignment)
+                s = ref_styles[col_idx]
+                new_cell.font          = copy(s["font"])
+                new_cell.border        = copy(s["border"])
+                new_cell.fill          = copy(s["fill"])
+                new_cell.number_format = s["number_format"]
+                new_cell.alignment     = copy(s["alignment"])
 
     # Actualizar tabla resumen fila 3 cols G-L
     ws_trans["G3"] = stats["transacciones"]
