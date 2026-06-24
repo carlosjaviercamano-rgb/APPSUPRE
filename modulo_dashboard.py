@@ -302,9 +302,9 @@ def _procesar_corresponsal(libro, informe, mes, anio):
 
 def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
     """Actualiza el Excel del informe corresponsal."""
-    # Leer el workbook original con data_only para obtener valores de fórmulas
+    # Leer con estilos (data_only=False para preservar formatos)
     informe_file.seek(0)
-    wb = openpyxl.load_workbook(informe_file, data_only=True)
+    wb = openpyxl.load_workbook(informe_file, data_only=False)
 
     # ── HOJA TRANSFERENCIAS CORRESPONSAL ────────────────────────────────
     ws_trans = wb["TRANSFERENCIAS CORRESPONSAL"]
@@ -379,8 +379,9 @@ def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
 
     # ── HOJA COMISIÓN CORRESPONSAL ───────────────────────────────────────
     ws_com = wb["COMISIÓN CORRESPONSAL"]
+    from copy import copy
 
-    # Encontrar fila TOTAL y última fila con datos antes del total
+    # Encontrar fila TOTAL y última fila con datos
     fila_total = None
     fila_ant   = None
     for row in ws_com.iter_rows(min_row=2):
@@ -391,50 +392,68 @@ def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
         if row[0].value and val not in ["","None"]:
             fila_ant = row
 
-    # Si no hay fila TOTAL, insertar al final
     if fila_total is None:
         fila_total = (fila_ant[0].row + 1) if fila_ant else ws_com.max_row + 1
 
-    var_mes_ant_val = 0
-    var_mes_ant_pct = 0
+    # Leer comisión anterior para variaciones
+    com_ant = 0
     if fila_ant and fila_ant[3].value:
         try:
-            com_ant = float(str(fila_ant[3].value).replace(",","").replace("$","").strip() or 0)
-        except (ValueError, TypeError):
+            # Leer valor numérico del workbook separado con data_only
+            informe_file.seek(0)
+            wb2 = openpyxl.load_workbook(informe_file, data_only=True)
+            ws_com2 = wb2["COMISIÓN CORRESPONSAL"]
+            com_ant = float(ws_com2.cell(row=fila_ant[0].row, column=4).value or 0)
+            # También leer comisión año anterior
+            com_anio_ant = 0
+            for row2 in ws_com2.iter_rows(min_row=2):
+                if (str(row2[0].value) == str(anio-1) and
+                    row2[1].value and str(row2[1].value).strip().lower().startswith(mes.lower()[:3])):
+                    com_anio_ant = float(row2[3].value or 0)
+                    break
+            wb2.close()
+        except Exception:
             com_ant = 0
-        var_mes_ant_val = comision - com_ant
-        var_mes_ant_pct = var_mes_ant_val / com_ant if com_ant else 0
+            com_anio_ant = 0
 
-    # Variación vs año anterior (mismo mes)
-    mes_idx = MESES.index(mes) + 1
-    var_anio_val = 0
-    var_anio_pct = 0
-    for row in ws_com.iter_rows(min_row=2):
-        if (str(row[0].value).strip() == str(anio - 1) and
-            str(row[1].value).strip().lower().startswith(mes.lower()[:3])):
-            if row[3].value:
-                com_anio_ant = float(str(row[3].value).replace(",","").replace("$","").strip() or 0)
-                var_anio_val = comision - com_anio_ant
-                var_anio_pct = var_anio_val / com_anio_ant if com_anio_ant else 0
-            break
+    var_mes_ant_val = comision - com_ant
+    var_mes_ant_pct = round(var_mes_ant_val / com_ant, 4) if com_ant else 0
+    var_anio_val    = comision - com_anio_ant
+    var_anio_pct    = round(var_anio_val / com_anio_ant, 4) if com_anio_ant else 0
 
-    # Insertar nueva fila antes del TOTAL copiando formato
-    nueva_fila = fila_total
+    # Insertar nueva fila antes del TOTAL
+    nueva_fila    = fila_total
+    fila_ref_com  = nueva_fila - 1
     ws_com.insert_rows(nueva_fila)
-    valores_com = [anio, mes, stats["transacciones"], comision,
-                   var_mes_ant_val, round(var_mes_ant_pct, 4),
-                   var_anio_val, round(var_anio_pct, 4)]
-    fila_ref_com = nueva_fila - 1  # fila anterior como referencia
-    from copy import copy
-    for col_idx, val in enumerate(valores_com, start=1):
+
+    # Copiar formato de fila anterior y escribir valores con fórmulas
+    valores_com = {
+        1: anio,
+        2: mes,
+        3: stats["transacciones"],
+        4: comision,
+        5: f"=+D{nueva_fila}-D{nueva_fila-1}",
+        6: f"=+(D{nueva_fila}-D{nueva_fila-1})/D{nueva_fila-1}",
+        7: f"=+D{nueva_fila}-D{nueva_fila - (MESES.index(mes)+1 + 12)}",
+        8: f"=+(D{nueva_fila}-D{nueva_fila - (MESES.index(mes)+1 + 12)})/D{nueva_fila - (MESES.index(mes)+1 + 12)}",
+    }
+    for col_idx, val in valores_com.items():
         new_cell = ws_com.cell(row=nueva_fila, column=col_idx, value=val)
         ref_cell = ws_com.cell(row=fila_ref_com, column=col_idx)
         if ref_cell.has_style:
-            new_cell.font         = copy(ref_cell.font)
-            new_cell.border       = copy(ref_cell.border)
-            new_cell.fill         = copy(ref_cell.fill)
+            new_cell.font          = copy(ref_cell.font)
+            new_cell.border        = copy(ref_cell.border)
+            new_cell.fill          = copy(ref_cell.fill)
             new_cell.number_format = ref_cell.number_format
-            new_cell.alignment    = copy(ref_cell.alignment)
+            new_cell.alignment     = copy(ref_cell.alignment)
+
+    # Actualizar fórmulas del TOTAL para incluir nueva fila
+    fila_total_nueva = fila_total + 1  # se movió por insert_rows
+    for col_letra in ["C","D","E","G"]:
+        cell_total = ws_com[f"{col_letra}{fila_total_nueva}"]
+        if cell_total.value and "SUM" in str(cell_total.value):
+            # Actualizar rango del SUM para incluir nueva fila
+            cell_total.value = f"=SUM({col_letra}2:{col_letra}{nueva_fila})" 
 
     buf = io.BytesIO()
     wb.save(buf)
