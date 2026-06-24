@@ -368,17 +368,20 @@ def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
     # ── HOJA COMISIÓN CORRESPONSAL ───────────────────────────────────────
     ws_com = wb["COMISIÓN CORRESPONSAL"]
 
-    # Encontrar última fila con datos
-    ultima_com = 1
+    # Encontrar fila TOTAL y última fila con datos antes del total
+    fila_total = None
+    fila_ant   = None
     for row in ws_com.iter_rows(min_row=2):
-        if row[0].value and str(row[0].value).strip() not in ["","None","TOTAL "]:
-            ultima_com = row[0].row
-
-    # Calcular variaciones
-    fila_ant = None
-    for row in ws_com.iter_rows(min_row=2):
-        if row[0].value and str(row[0].value).strip() not in ["","None","TOTAL "]:
+        val = str(row[0].value).strip() if row[0].value else ""
+        if "TOTAL" in val.upper():
+            fila_total = row[0].row
+            break
+        if row[0].value and val not in ["","None"]:
             fila_ant = row
+
+    # Si no hay fila TOTAL, insertar al final
+    if fila_total is None:
+        fila_total = (fila_ant[0].row + 1) if fila_ant else ws_com.max_row + 1
 
     var_mes_ant_val = 0
     var_mes_ant_pct = 0
@@ -404,7 +407,7 @@ def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
             break
 
     # Insertar nueva fila antes del TOTAL
-    nueva_fila = ultima_com + 1
+    nueva_fila = fila_total
     ws_com.insert_rows(nueva_fila)
     ws_com.cell(row=nueva_fila, column=1, value=anio)
     ws_com.cell(row=nueva_fila, column=2, value=mes)
