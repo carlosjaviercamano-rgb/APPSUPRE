@@ -546,24 +546,185 @@ def _render_dashboard_corresponsal():
         st.success("✅ Dashboard listo. Descárgalo y ábrelo en tu navegador.")
 
 
-def _generar_html_corresponsal(stats, comision):
-    mes   = stats["mes"]
-    anio  = stats["anio"]
-    trans = stats["transacciones"]
-    sin_id = stats["sin_identificar"]
-    ident  = stats["identificadas"]
-    reinc  = stats["reincidentes"]
-    nuevos = stats["nuevos"]
-    com_fmt = f"${comision:,.0f}".replace(",",".")
-    pct_reinc = round(reinc/ident*100, 1) if ident else 0
-    pct_nuevo = round(nuevos/ident*100, 1) if ident else 0
-    pct_ident = round(ident/trans*100, 1) if trans else 0
 
-    filas_ced = ""
-    for i, (ced, act) in enumerate(stats["actualizaciones"].items(), start=1):
-        obs  = act["obs"]
-        pill = "pill-rei" if obs == "REICIDENTE" else "pill-nuevo"
-        filas_ced += f"<tr><td>{i}</td><td>{ced}</td><td>{act['hist_ant']}</td><td>{act['trans_mes']}</td><td>{act['hist_act']}</td><td><span class='pill {pill}'>{obs}</span></td></tr>"
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Corresponsal Bancolombia &mdash; {mes} {anio}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f2;color:#1a1a1a;padding:24px 16px}}
+.db-wrap{{max-width:960px;margin:0 auto}}
+.db-header{{display:flex;align-items:baseline;gap:12px;margin-bottom:1.5rem;flex-wrap:wrap}}
+.db-title{{font-size:20px;font-weight:500}}
+.db-badge{{font-size:11px;padding:3px 10px;border-radius:20px;background:#eaf3de;color:#3B6D11;font-weight:500}}
+.db-section{{font-size:11px;font-weight:500;color:#888;text-transform:uppercase;letter-spacing:.06em;margin:1.75rem 0 .75rem;border-bottom:0.5px solid rgba(0,0,0,0.1);padding-bottom:6px}}
+.kpi-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-bottom:1rem}}
+.kpi{{background:#fff;border:0.5px solid rgba(0,0,0,0.1);border-radius:10px;padding:14px 16px}}
+.kpi-label{{font-size:12px;color:#777;margin:0 0 5px}}
+.kpi-val{{font-size:24px;font-weight:500;margin:0;line-height:1.2;color:#1a1a1a}}
+.kpi-sub{{font-size:11px;color:#aaa;margin:4px 0 0}}
+.kpi-up{{color:#1D9E75}}.kpi-dn{{color:#D85A30}}
+.chart-row{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1rem}}
+.chart-card{{background:#fff;border:0.5px solid rgba(0,0,0,0.1);border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem}}
+.chart-title{{font-size:14px;font-weight:500;margin:0 0 14px;color:#1a1a1a}}
+.legend{{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:10px;font-size:12px;color:#666}}
+.leg-dot{{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:4px;vertical-align:middle}}
+.donut-wrap{{display:flex;align-items:center;gap:20px;padding:4px 0}}
+.table-wrap{{overflow-x:auto}}
+table.dt{{width:100%;border-collapse:collapse;font-size:13px}}
+table.dt th{{text-align:left;font-weight:500;color:#555;padding:8px 10px;border-bottom:1px solid rgba(0,0,0,0.1);white-space:nowrap;background:#fafaf8;position:sticky;top:0;z-index:1}}
+table.dt td{{padding:6px 10px;border-bottom:0.5px solid rgba(0,0,0,0.06);color:#1a1a1a}}
+table.dt tr:hover td{{background:#fafaf8}}
+table.dt tr:last-child td{{border-bottom:none;font-weight:500;background:#f5f5f2}}
+.pill{{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500}}
+.pill-rei{{background:#e6f1fb;color:#185FA5}}.pill-nuevo{{background:#eaf3de;color:#3B6D11}}
+.controls{{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}}
+.controls input,.controls select{{padding:7px 12px;border:0.5px solid rgba(0,0,0,0.2);border-radius:8px;font-size:13px;outline:none;background:#fff}}
+.controls input{{width:220px}}
+.scroll{{max-height:460px;overflow-y:auto;border-radius:8px;border:0.5px solid rgba(0,0,0,0.1)}}
+.pag-info{{font-size:12px;color:#999;margin-top:8px;text-align:right}}
+.note-box{{background:#e6f1fb;border:0.5px solid #b5d4f4;border-radius:8px;padding:10px 14px;font-size:12px;color:#0C447C;margin-top:1rem}}
+.netlify-box{{background:#fff8e6;border:0.5px solid #f0c040;border-radius:8px;padding:10px 14px;font-size:12px;color:#7a5c00;margin-top:1rem}}
+</style>
+</head>
+<body>
+<div class="db-wrap">
+  <div class="db-header">
+    <p class="db-title">Corresponsal Bancolombia</p>
+    <span class="db-badge">{mes} {anio}</span>
+  </div>
+
+  <p class="db-section"><i class="ti ti-transfer"></i> Transferencias corresponsal &mdash; {mes} {anio}</p>
+  <div class="kpi-grid">
+    <div class="kpi"><p class="kpi-label">Total transacciones</p><p class="kpi-val">{trans}</p><p class="kpi-sub">mes de {mes} {anio}</p></div>
+    <div class="kpi"><p class="kpi-label">Sin identificar</p><p class="kpi-val">{sin_id}</p><p class="kpi-sub">de {trans} transacciones</p></div>
+    <div class="kpi"><p class="kpi-label">Identificadas</p><p class="kpi-val">{ident}</p><p class="kpi-sub">{pct_ident}% del total</p></div>
+    <div class="kpi"><p class="kpi-label">Reincidentes</p><p class="kpi-val kpi-up">{reinc}</p><p class="kpi-sub kpi-up">{pct_reinc}% de identificados</p></div>
+    <div class="kpi"><p class="kpi-label">Nuevos</p><p class="kpi-val">{nuevos}</p><p class="kpi-sub">{pct_nuevo}% de identificados</p></div>
+    <div class="kpi"><p class="kpi-label">Comisi&oacute;n {mes}</p><p class="kpi-val">{com_fmt}</p>{var_mes_str}</div>
+  </div>
+
+  <div class="chart-row">
+    <div class="chart-card">
+      <p class="chart-title">Nuevos vs reincidentes ({mes})</p>
+      <div class="donut-wrap">
+        <div style="position:relative;width:150px;height:150px;flex-shrink:0"><canvas id="c3"></canvas></div>
+        <div style="font-size:13px;line-height:2">
+          <div><span class="leg-dot" style="background:#185FA5"></span><strong>{pct_reinc}%</strong> Reincidentes &mdash; {reinc}</div>
+          <div><span class="leg-dot" style="background:#1D9E75"></span><strong>{pct_nuevo}%</strong> Nuevos &mdash; {nuevos}</div>
+          <div style="margin-top:10px;font-size:12px;color:#999">Total identificados: {ident}</div>
+        </div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <p class="chart-title">Transacciones por mes</p>
+      <div class="legend"><span><span class="leg-dot" style="background:#185FA5"></span>2025</span><span><span class="leg-dot" style="background:#1D9E75"></span>2026</span></div>
+      <div style="position:relative;width:100%;height:160px"><canvas id="c2"></canvas></div>
+    </div>
+  </div>
+
+  <p class="db-section"><i class="ti ti-coin"></i> Comisi&oacute;n mensual &mdash; evoluci&oacute;n hist&oacute;rica</p>
+  <div class="chart-card">
+    <p class="chart-title">Valor comisi&oacute;n por mes (COP)</p>
+    <div class="legend"><span><span class="leg-dot" style="background:#185FA5"></span>2025</span><span><span class="leg-dot" style="background:#1D9E75"></span>2026</span></div>
+    <div style="position:relative;width:100%;height:260px"><canvas id="c1"></canvas></div>
+  </div>
+  <div class="chart-card">
+    <p class="chart-title">Variaci&oacute;n $ vs mes anterior &mdash; 2026</p>
+    <div style="position:relative;width:100%;height:180px"><canvas id="c4"></canvas></div>
+  </div>
+
+  <p class="db-section"><i class="ti ti-table"></i> Detalle hist&oacute;rico completo</p>
+  <div class="chart-card">
+    <div class="table-wrap">
+      <table class="dt">
+        <thead><tr><th>A&ntilde;o</th><th>Mes</th><th>Transacciones</th><th>Comisi&oacute;n (COP)</th><th>Var. $ mes ant.</th><th>Var. % mes ant.</th><th>Var. vs a&ntilde;o ant.</th></tr></thead>
+        <tbody>{filas_hist}</tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="db-section"><i class="ti ti-id-badge"></i> Base de clientes &mdash; transferencias corresponsal ({len(cedulas_all)} registros)</p>
+  <div class="chart-card">
+    <div class="controls">
+      <input type="text" id="s" placeholder="Buscar c&eacute;dula..." oninput="f()">
+      <select id="o" onchange="f()">
+        <option value="">Todos</option>
+        <option value="REICIDENTE">Solo reincidentes</option>
+        <option value="NUEVO">Solo nuevos</option>
+      </select>
+    </div>
+    <div class="scroll">
+      <table class="dt" id="tbl">
+        <thead><tr><th>#</th><th>C&eacute;dula</th><th>Hist. anterior</th><th>Trans. {mes}</th><th>Hist. actual</th><th>Observaci&oacute;n</th></tr></thead>
+        <tbody id="tb">{filas_ced}</tbody>
+      </table>
+    </div>
+    <p class="pag-info" id="pi"></p>
+  </div>
+
+  <div class="note-box"><i class="ti ti-info-circle"></i> <strong>Nota:</strong> Del total de recaudo por corresponsal se est&aacute; exento de las primeras 50 transacciones.</div>
+  <div class="netlify-box" style="margin-top:0.75rem">
+    <strong>📤 C&oacute;mo publicar este dashboard:</strong><br>
+    1. Ve a <a href="https://app.netlify.com" target="_blank">app.netlify.com</a> &rarr; <em>Add new site</em> &rarr; <em>Deploy manually</em><br>
+    2. Arrastra este archivo HTML a la zona de carga<br>
+    3. Netlify genera un link p&uacute;blico para compartir ✅
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const ML={labels:{json.dumps(meses_labels, ensure_ascii=False)}};
+const D25T={json.dumps(data_2025_trans)};
+const D26T={json.dumps(data_2026_trans)};
+const D25C={json.dumps(data_2025_com)};
+const D26C={json.dumps(data_2026_com)};
+const DV6={json.dumps(data_var_2026)};
+const DVC={json.dumps(data_var_col)};
+const CFG={{responsive:true,maintainAspectRatio:false,plugins:{{legend:{{display:false}}}}}};
+
+// Donut
+new Chart(document.getElementById('c3'),{{type:'doughnut',data:{{labels:['Reincidentes','Nuevos'],datasets:[{{data:[{reinc},{nuevos}],backgroundColor:['#185FA5','#1D9E75'],borderWidth:0}}]}},options:{{responsive:true,maintainAspectRatio:false,plugins:{{legend:{{display:false}}}},cutout:'70%'}}}});
+
+// Línea transacciones
+new Chart(document.getElementById('c2'),{{type:'line',data:{{labels:ML.labels,datasets:[{{label:'2025',data:D25T,borderColor:'#185FA5',backgroundColor:'rgba(24,95,165,0.08)',tension:0.4,fill:true}},{{label:'2026',data:D26T,borderColor:'#1D9E75',backgroundColor:'rgba(29,158,117,0.08)',tension:0.4,borderDash:[5,3],fill:false}}]}},options:{{...CFG,scales:{{y:{{beginAtZero:false}}}}}}}});
+
+// Barras comisión
+new Chart(document.getElementById('c1'),{{type:'bar',data:{{labels:ML.labels,datasets:[{{label:'2025',data:D25C,backgroundColor:'#185FA5'}},{{label:'2026',data:D26C,backgroundColor:'#1D9E75'}}]}},options:{{...CFG,scales:{{y:{{ticks:{{callback:v=>v>=1e6?'$'+v/1e6+'M':'$'+v/1e3+'K'}}}}}}}}}});
+
+// Barras variación
+new Chart(document.getElementById('c4'),{{type:'bar',data:{{labels:ML.labels,datasets:[{{data:DV6,backgroundColor:DVC}}]}},options:{{...CFG,plugins:{{legend:{{display:false}}}},scales:{{y:{{ticks:{{callback:v=>v>=1e6?'$'+v/1e6+'M':'$'+v/1e3+'K'}}}}}}}}}});
+
+// Tabla cédulas
+var allRows=[].slice.call(document.querySelectorAll('#tb tr'));
+function f(){{
+  var s=document.getElementById('s').value.toLowerCase();
+  var o=document.getElementById('o').value;
+  var vis=0;
+  allRows.forEach(function(r){{
+    var c=r.cells[1].textContent.toLowerCase();
+    var v=r.cells[5].textContent.trim();
+    var ok=(c.includes(s)&&(!o||v===o));
+    r.style.display=ok?'':'none';
+    if(ok)vis++;
+  }});
+  document.getElementById('pi').textContent='Mostrando '+vis+' de {len(cedulas_all)} registros';
+}}
+f();
+</script>
+</body>
+</html>"""
+    return html.encode("utf-8")
+
+
+def _mes_anterior(mes):
+    idx = MESES.index(mes)
+    return MESES[idx-1] if idx > 0 else MESES[11]
+
 
     html = f"""<!DOCTYPE html>
 <html lang="es">
