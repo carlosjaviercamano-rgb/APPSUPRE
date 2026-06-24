@@ -383,7 +383,7 @@ def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
     var_mes_ant_val = 0
     var_mes_ant_pct = 0
     if fila_ant and fila_ant[3].value:
-        com_ant = fila_ant[3].value
+        com_ant = float(str(fila_ant[3].value).replace(",","").replace("$","").strip() or 0)
         var_mes_ant_val = comision - com_ant
         var_mes_ant_pct = var_mes_ant_val / com_ant if com_ant else 0
 
@@ -392,11 +392,12 @@ def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
     var_anio_val = 0
     var_anio_pct = 0
     for row in ws_com.iter_rows(min_row=2):
-        if (row[0].value == anio - 1 and
-            str(row[1].value).strip().lower() == mes.lower()):
+        if (str(row[0].value).strip() == str(anio - 1) and
+            str(row[1].value).strip().lower().startswith(mes.lower()[:3])):
             if row[3].value:
-                var_anio_val = comision - row[3].value
-                var_anio_pct = var_anio_val / row[3].value if row[3].value else 0
+                com_anio_ant = float(str(row[3].value).replace(",","").replace("$","").strip() or 0)
+                var_anio_val = comision - com_anio_ant
+                var_anio_pct = var_anio_val / com_anio_ant if com_anio_ant else 0
             break
 
     # Insertar nueva fila antes del TOTAL
