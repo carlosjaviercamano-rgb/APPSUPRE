@@ -302,9 +302,9 @@ def _procesar_corresponsal(libro, informe, mes, anio):
 
 def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
     """Actualiza el Excel del informe corresponsal."""
-    # Leer el workbook original
+    # Leer el workbook original con data_only para obtener valores de fórmulas
     informe_file.seek(0)
-    wb = openpyxl.load_workbook(informe_file)
+    wb = openpyxl.load_workbook(informe_file, data_only=True)
 
     # ── HOJA TRANSFERENCIAS CORRESPONSAL ────────────────────────────────
     ws_trans = wb["TRANSFERENCIAS CORRESPONSAL"]
@@ -383,7 +383,10 @@ def _generar_excel_corresponsal(informe_file, stats, comision, mes, anio):
     var_mes_ant_val = 0
     var_mes_ant_pct = 0
     if fila_ant and fila_ant[3].value:
-        com_ant = float(str(fila_ant[3].value).replace(",","").replace("$","").strip() or 0)
+        try:
+            com_ant = float(str(fila_ant[3].value).replace(",","").replace("$","").strip() or 0)
+        except (ValueError, TypeError):
+            com_ant = 0
         var_mes_ant_val = comision - com_ant
         var_mes_ant_pct = var_mes_ant_val / com_ant if com_ant else 0
 
