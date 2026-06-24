@@ -269,7 +269,8 @@ def _procesar_corresponsal(libro, informe, mes, anio):
 
     for ced, movs in cedulas_mes.items():
         if ced in cedulas_historico:
-            reincidentes += 1
+            # Contar movimientos (no cédulas) para cuadrar con identificadas
+            reincidentes += movs
             fila = df_hist[df_hist["CEDULA"] == ced].iloc[0]
             hist_ant = int(fila["HIST_ACT"]) if pd.notna(fila["HIST_ACT"]) else 0
             actualizaciones[ced] = {
@@ -279,7 +280,7 @@ def _procesar_corresponsal(libro, informe, mes, anio):
                 "obs":       "REICIDENTE"
             }
         else:
-            nuevos += 1
+            nuevos += movs
             actualizaciones[ced] = {
                 "hist_ant":  0,
                 "trans_mes": movs,
@@ -704,7 +705,9 @@ def _generar_html_corresponsal(stats, comision):
     jd26t = "[{}]".format(",".join(str(x) for x in d26t))
     jd25c = json.dumps(d25c)
     jd26c = json.dumps(d26c)
-    jdv6  = "[{}]".format(",".join(dv6_js))
+    # Variación: solo meses hasta mes_idx, el resto null
+    dv6_js = ["null" if i > mes_idx else str(int(v)) for i, v in enumerate(dv6)]
+    jdv6   = "[{}]".format(",".join(dv6_js))
     jdvc  = json.dumps(dvc)
 
     css = """*{box-sizing:border-box;margin:0;padding:0}
