@@ -548,50 +548,174 @@ def _render_dashboard_corresponsal():
 
 
 def _generar_html_corresponsal(stats, comision):
+    import json
+    import io as _io
+    mes    = stats["mes"]
+    anio   = stats["anio"]
+    trans  = stats["transacciones"]
+    sin_id = stats["sin_identificar"]
+    ident  = stats["identificadas"]
+    reinc  = stats["reincidentes"]
+    nuevos = stats["nuevos"]
+    pct_reinc = round(reinc/ident*100, 1) if ident else 0
+    pct_nuevo = round(nuevos/ident*100, 1) if ident else 0
+    pct_ident = round(ident/trans*100, 1) if trans else 0
+    com_fmt   = "${:,.0f}".format(comision).replace(",",".")
 
+    # Leer histórico del Excel generado
+    informe_bytes  = st.session_state.get("corr_excel")
+    hist_data      = []
+    cedulas_all    = []
+    var_mes_ant_val = 0
 
-    html = f"""<!DOCTYPE html>
+    if informe_bytes:
+        wb_h = openpyxl.load_workbook(_io.BytesIO(informe_bytes), data_only=True)
+        # Hoja comisión
+        hoja_com = "COMISIÓN CORRESPONSAL" if "COMISIÓN CORRESPONSAL" in wb_h.sheetnames else "COMISION CORRESPONSAL"
+        ws_c = wb_h[hoja_com]
+        for row in ws_c.iter_rows(min_row=2, values_only=True):
+            if not row[0]: continue
+            anio_r = str(row[0]).strip()
+            mes_r  = str(row[1]).strip() if row[1] else ""
+            entry  = {"anio": anio_r, "mes": mes_r,
+                      "trans": row[2] or 0, "com": row[3] or 0,
+                      "var_e": row[4] or 0, "var_pct": row[5] or 0,
+                      "var_anio": row[6] or 0, "var_anio_pct": row[7] or 0}
+            hist_data.append(entry)
+            if anio_r == str(anio) and mes_r.lower().startswith(mes.lower()[:3]):
+                var_mes_ant_val = row[4] or 0
+        # Hoja transferencias
+        ws_t = wb_h["TRANSFERENCIAS CORRESPONSAL"]
+        for i, row in enumerate(ws_t.iter_rows(min_row=2, values_only=True), start=1):
+            if not row[0]: continue
+            cedulas_all.append({
+                "n": i, "ced": str(row[0]),
+                "hist_ant": row[1] or 0,
+                "trans_mes": row[2] or 0,
+                "hist_act": row[3] or 0,
+                "obs": str(row[4]) if row[4] else ""
+            })
+        wb_h.close()
+
+    # KPI variación comisión
+    if var_mes_ant_val > 0:
+        var_mes_str = '<p class="kpi-sub kpi-up">&#9650; ${:,.0f} vs {}</p>'.format(abs(var_mes_ant_val), _mes_anterior(mes))
+    elif var_mes_ant_val < 0:
+        var_mes_str = '<p class="kpi-sub kpi-dn">&#9660; ${:,.0f} vs {}</p>'.format(abs(var_mes_ant_val), _mes_anterior(mes))
+    else:
+        var_mes_str = ""
+
+    # Datos para gráficas
+    ml = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]
+    d25t=[0]*12; d26t=[0]*12; d25c=[0]*12; d26c=[0]*12
+    dv6=[0]*12;  dvc=["#1D9E75"]*12
+
+    for d in hist_data:
+        if "TOTAL" in str(d["anio"]).upper(): continue
+        try:
+            a = int(d["anio"])
+            m = next((i for i,x in enumerate(ml) if d["mes"].strip().lower().startswith(x.lower())), -1)
+            if m < 0: continue
+            if a == 2025:
+                d25t[m] = d["trans"]; d25c[m] = d["com"]
+            elif a == 2026:
+                d26t[m] = d["trans"]; d26c[m] = d["com"]
+                dv6[m]  = d["var_e"]
+                dvc[m]  = "#1D9E75" if (d["var_e"] or 0) >= 0 else "#D85A30"
+        except Exception:
+            pass
+
+    # Tabla histórica
+    hist_rows = [d for d in hist_data if "TOTAL" not in str(d["anio"]).upper()]
+    hist_rows = list(reversed(hist_rows))
+    tot_row   = next((d for d in hist_data if "TOTAL" in str(d["anio"]).upper()), None)
+
+    def pill_var(val, pct, is_pct=False):
+        try:
+            v = float(val or 0); p = float(pct or 0)
+        except Exception:
+            return str(val) if val else ""
+        c = "kpi-up" if v >= 0 else "kpi-dn"
+        s = "&#9650;" if v >= 0 else "&#9660;"
+        if is_pct:
+            return '<span class="{}">{} {:.1f}%</span>'.format(c, s, abs(p)*100)
+        return '<span class="{}">{} ${:,.0f}</span>'.format(c, s, abs(v))
+
+    fh = ""
+    for d in hist_rows:
+        fh += "<tr><td>{}</td><td>{}</td><td>{:,}</td><td>${:,.0f}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
+            d["anio"], d["mes"], d["trans"], d["com"],
+            pill_var(d["var_e"], d["var_e"]),
+            pill_var(d["var_pct"], d["var_pct"], True),
+            pill_var(d["var_anio"], d["var_anio_pct"], True)
+        )
+    if tot_row:
+        fh += "<tr style='font-weight:600;background:#f5f5f2'><td>TOTAL</td><td></td><td>{:,}</td><td>${:,.0f}</td><td colspan='3' style='color:#888'>{} periodos</td></tr>".format(
+            tot_row["trans"], tot_row["com"], len(hist_rows))
+
+    # Tabla cedulas
+    fc = ""
+    for d in cedulas_all:
+        obs = d["obs"]
+        if obs == "REICIDENTE":
+            pill = "<span class='pill pill-rei'>REICIDENTE</span>"
+        elif obs == "NUEVO":
+            pill = "<span class='pill pill-nuevo'>NUEVO</span>"
+        else:
+            pill = "&mdash;"
+        fc += "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
+            d["n"], d["ced"], d["hist_ant"], d["trans_mes"] or 0, d["hist_act"], pill)
+
+    n_ced = len(cedulas_all)
+
+    # JSON para JS
+    jml  = json.dumps(ml)
+    jd25t = json.dumps(d25t); jd26t = json.dumps(d26t)
+    jd25c = json.dumps(d25c); jd26c = json.dumps(d26c)
+    jdv6 = json.dumps(dv6);   jdvc  = json.dumps(dvc)
+
+    css = """*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f2;color:#1a1a1a;padding:24px 16px}
+.db-wrap{max-width:960px;margin:0 auto}
+.db-header{display:flex;align-items:baseline;gap:12px;margin-bottom:1.5rem;flex-wrap:wrap}
+.db-title{font-size:20px;font-weight:500}
+.db-badge{font-size:11px;padding:3px 10px;border-radius:20px;background:#eaf3de;color:#3B6D11;font-weight:500}
+.db-section{font-size:11px;font-weight:500;color:#888;text-transform:uppercase;letter-spacing:.06em;margin:1.75rem 0 .75rem;border-bottom:0.5px solid rgba(0,0,0,0.1);padding-bottom:6px}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-bottom:1rem}
+.kpi{background:#fff;border:0.5px solid rgba(0,0,0,0.1);border-radius:10px;padding:14px 16px}
+.kpi-label{font-size:12px;color:#777;margin:0 0 5px}
+.kpi-val{font-size:24px;font-weight:500;margin:0;line-height:1.2;color:#1a1a1a}
+.kpi-sub{font-size:11px;color:#aaa;margin:4px 0 0}
+.kpi-up{color:#1D9E75}.kpi-dn{color:#D85A30}
+.chart-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1rem}
+.chart-card{background:#fff;border:0.5px solid rgba(0,0,0,0.1);border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem}
+.chart-title{font-size:14px;font-weight:500;margin:0 0 14px;color:#1a1a1a}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:10px;font-size:12px;color:#666}
+.leg-dot{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:4px;vertical-align:middle}
+.donut-wrap{display:flex;align-items:center;gap:20px;padding:4px 0}
+.table-wrap{overflow-x:auto}
+table.dt{width:100%;border-collapse:collapse;font-size:13px}
+table.dt th{text-align:left;font-weight:500;color:#555;padding:8px 10px;border-bottom:1px solid rgba(0,0,0,0.1);white-space:nowrap;background:#fafaf8;position:sticky;top:0;z-index:1}
+table.dt td{padding:6px 10px;border-bottom:0.5px solid rgba(0,0,0,0.06);color:#1a1a1a}
+table.dt tr:hover td{background:#fafaf8}
+.pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500}
+.pill-rei{background:#e6f1fb;color:#185FA5}.pill-nuevo{background:#eaf3de;color:#3B6D11}
+.controls{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.controls input,.controls select{padding:7px 12px;border:0.5px solid rgba(0,0,0,0.2);border-radius:8px;font-size:13px;outline:none;background:#fff}
+.controls input{width:220px}
+.scroll{max-height:460px;overflow-y:auto;border-radius:8px;border:0.5px solid rgba(0,0,0,0.1)}
+.pag-info{font-size:12px;color:#999;margin-top:8px;text-align:right}
+.note-box{background:#e6f1fb;border:0.5px solid #b5d4f4;border-radius:8px;padding:10px 14px;font-size:12px;color:#0C447C;margin-top:1rem}
+.netlify-box{background:#fff8e6;border:0.5px solid #f0c040;border-radius:8px;padding:10px 14px;font-size:12px;color:#7a5c00;margin-top:.75rem}"""
+
+    html = """<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard Corresponsal Bancolombia &mdash; {mes} {anio}</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
 <style>
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f2;color:#1a1a1a;padding:24px 16px}}
-.db-wrap{{max-width:960px;margin:0 auto}}
-.db-header{{display:flex;align-items:baseline;gap:12px;margin-bottom:1.5rem;flex-wrap:wrap}}
-.db-title{{font-size:20px;font-weight:500}}
-.db-badge{{font-size:11px;padding:3px 10px;border-radius:20px;background:#eaf3de;color:#3B6D11;font-weight:500}}
-.db-section{{font-size:11px;font-weight:500;color:#888;text-transform:uppercase;letter-spacing:.06em;margin:1.75rem 0 .75rem;border-bottom:0.5px solid rgba(0,0,0,0.1);padding-bottom:6px}}
-.kpi-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-bottom:1rem}}
-.kpi{{background:#fff;border:0.5px solid rgba(0,0,0,0.1);border-radius:10px;padding:14px 16px}}
-.kpi-label{{font-size:12px;color:#777;margin:0 0 5px}}
-.kpi-val{{font-size:24px;font-weight:500;margin:0;line-height:1.2;color:#1a1a1a}}
-.kpi-sub{{font-size:11px;color:#aaa;margin:4px 0 0}}
-.kpi-up{{color:#1D9E75}}.kpi-dn{{color:#D85A30}}
-.chart-row{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1rem}}
-.chart-card{{background:#fff;border:0.5px solid rgba(0,0,0,0.1);border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem}}
-.chart-title{{font-size:14px;font-weight:500;margin:0 0 14px;color:#1a1a1a}}
-.legend{{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:10px;font-size:12px;color:#666}}
-.leg-dot{{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:4px;vertical-align:middle}}
-.donut-wrap{{display:flex;align-items:center;gap:20px;padding:4px 0}}
-.table-wrap{{overflow-x:auto}}
-table.dt{{width:100%;border-collapse:collapse;font-size:13px}}
-table.dt th{{text-align:left;font-weight:500;color:#555;padding:8px 10px;border-bottom:1px solid rgba(0,0,0,0.1);white-space:nowrap;background:#fafaf8;position:sticky;top:0;z-index:1}}
-table.dt td{{padding:6px 10px;border-bottom:0.5px solid rgba(0,0,0,0.06);color:#1a1a1a}}
-table.dt tr:hover td{{background:#fafaf8}}
-table.dt tr:last-child td{{border-bottom:none;font-weight:500;background:#f5f5f2}}
-.pill{{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500}}
-.pill-rei{{background:#e6f1fb;color:#185FA5}}.pill-nuevo{{background:#eaf3de;color:#3B6D11}}
-.controls{{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}}
-.controls input,.controls select{{padding:7px 12px;border:0.5px solid rgba(0,0,0,0.2);border-radius:8px;font-size:13px;outline:none;background:#fff}}
-.controls input{{width:220px}}
-.scroll{{max-height:460px;overflow-y:auto;border-radius:8px;border:0.5px solid rgba(0,0,0,0.1)}}
-.pag-info{{font-size:12px;color:#999;margin-top:8px;text-align:right}}
-.note-box{{background:#e6f1fb;border:0.5px solid #b5d4f4;border-radius:8px;padding:10px 14px;font-size:12px;color:#0C447C;margin-top:1rem}}
-.netlify-box{{background:#fff8e6;border:0.5px solid #f0c040;border-radius:8px;padding:10px 14px;font-size:12px;color:#7a5c00;margin-top:1rem}}
+{css}
 </style>
 </head>
 <body>
@@ -600,8 +724,7 @@ table.dt tr:last-child td{{border-bottom:none;font-weight:500;background:#f5f5f2
     <p class="db-title">Corresponsal Bancolombia</p>
     <span class="db-badge">{mes} {anio}</span>
   </div>
-
-  <p class="db-section"><i class="ti ti-transfer"></i> Transferencias corresponsal &mdash; {mes} {anio}</p>
+  <p class="db-section">Transferencias corresponsal &mdash; {mes} {anio}</p>
   <div class="kpi-grid">
     <div class="kpi"><p class="kpi-label">Total transacciones</p><p class="kpi-val">{trans}</p><p class="kpi-sub">mes de {mes} {anio}</p></div>
     <div class="kpi"><p class="kpi-label">Sin identificar</p><p class="kpi-val">{sin_id}</p><p class="kpi-sub">de {trans} transacciones</p></div>
@@ -610,7 +733,6 @@ table.dt tr:last-child td{{border-bottom:none;font-weight:500;background:#f5f5f2
     <div class="kpi"><p class="kpi-label">Nuevos</p><p class="kpi-val">{nuevos}</p><p class="kpi-sub">{pct_nuevo}% de identificados</p></div>
     <div class="kpi"><p class="kpi-label">Comisi&oacute;n {mes}</p><p class="kpi-val">{com_fmt}</p>{var_mes_str}</div>
   </div>
-
   <div class="chart-row">
     <div class="chart-card">
       <p class="chart-title">Nuevos vs reincidentes ({mes})</p>
@@ -629,8 +751,7 @@ table.dt tr:last-child td{{border-bottom:none;font-weight:500;background:#f5f5f2
       <div style="position:relative;width:100%;height:160px"><canvas id="c2"></canvas></div>
     </div>
   </div>
-
-  <p class="db-section"><i class="ti ti-coin"></i> Comisi&oacute;n mensual &mdash; evoluci&oacute;n hist&oacute;rica</p>
+  <p class="db-section">Comisi&oacute;n mensual &mdash; evoluci&oacute;n hist&oacute;rica</p>
   <div class="chart-card">
     <p class="chart-title">Valor comisi&oacute;n por mes (COP)</p>
     <div class="legend"><span><span class="leg-dot" style="background:#185FA5"></span>2025</span><span><span class="leg-dot" style="background:#1D9E75"></span>2026</span></div>
@@ -640,88 +761,75 @@ table.dt tr:last-child td{{border-bottom:none;font-weight:500;background:#f5f5f2
     <p class="chart-title">Variaci&oacute;n $ vs mes anterior &mdash; 2026</p>
     <div style="position:relative;width:100%;height:180px"><canvas id="c4"></canvas></div>
   </div>
-
-  <p class="db-section"><i class="ti ti-table"></i> Detalle hist&oacute;rico completo</p>
+  <p class="db-section">Detalle hist&oacute;rico completo</p>
   <div class="chart-card">
     <div class="table-wrap">
       <table class="dt">
         <thead><tr><th>A&ntilde;o</th><th>Mes</th><th>Transacciones</th><th>Comisi&oacute;n (COP)</th><th>Var. $ mes ant.</th><th>Var. % mes ant.</th><th>Var. vs a&ntilde;o ant.</th></tr></thead>
-        <tbody>{filas_hist}</tbody>
+        <tbody>{fh}</tbody>
       </table>
     </div>
   </div>
-
-  <p class="db-section"><i class="ti ti-id-badge"></i> Base de clientes &mdash; transferencias corresponsal ({len(cedulas_all)} registros)</p>
+  <p class="db-section">Base de clientes ({n_ced} registros)</p>
   <div class="chart-card">
     <div class="controls">
-      <input type="text" id="s" placeholder="Buscar c&eacute;dula..." oninput="f()">
-      <select id="o" onchange="f()">
+      <input type="text" id="s" placeholder="Buscar c&eacute;dula..." oninput="filtrar()">
+      <select id="o" onchange="filtrar()">
         <option value="">Todos</option>
         <option value="REICIDENTE">Solo reincidentes</option>
         <option value="NUEVO">Solo nuevos</option>
       </select>
     </div>
     <div class="scroll">
-      <table class="dt" id="tbl">
+      <table class="dt">
         <thead><tr><th>#</th><th>C&eacute;dula</th><th>Hist. anterior</th><th>Trans. {mes}</th><th>Hist. actual</th><th>Observaci&oacute;n</th></tr></thead>
-        <tbody id="tb">{filas_ced}</tbody>
+        <tbody id="tb">{fc}</tbody>
       </table>
     </div>
     <p class="pag-info" id="pi"></p>
   </div>
-
-  <div class="note-box"><i class="ti ti-info-circle"></i> <strong>Nota:</strong> Del total de recaudo por corresponsal se est&aacute; exento de las primeras 50 transacciones.</div>
-  <div class="netlify-box" style="margin-top:0.75rem">
-    <strong>📤 C&oacute;mo publicar este dashboard:</strong><br>
+  <div class="note-box"><strong>Nota:</strong> Del total de recaudo por corresponsal se est&aacute; exento de las primeras 50 transacciones.</div>
+  <div class="netlify-box"><strong>&#128228; C&oacute;mo publicar este dashboard:</strong><br>
     1. Ve a <a href="https://app.netlify.com" target="_blank">app.netlify.com</a> &rarr; <em>Add new site</em> &rarr; <em>Deploy manually</em><br>
     2. Arrastra este archivo HTML a la zona de carga<br>
-    3. Netlify genera un link p&uacute;blico para compartir ✅
-  </div>
+    3. Netlify genera un link p&uacute;blico para compartir &#10003;</div>
 </div>
-
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script>
-const ML={labels:{json.dumps(meses_labels, ensure_ascii=False)}};
-const D25T={json.dumps(data_2025_trans)};
-const D26T={json.dumps(data_2026_trans)};
-const D25C={json.dumps(data_2025_com)};
-const D26C={json.dumps(data_2026_com)};
-const DV6={json.dumps(data_var_2026)};
-const DVC={json.dumps(data_var_col)};
-const CFG={{responsive:true,maintainAspectRatio:false,plugins:{{legend:{{display:false}}}}}};
-
-// Donut
+var ML={jml};
+var D25T={jd25t},D26T={jd26t},D25C={jd25c},D26C={jd26c},DV6={jdv6},DVC={jdvc};
+var CFG={{responsive:true,maintainAspectRatio:false,plugins:{{legend:{{display:false}}}}}};
 new Chart(document.getElementById('c3'),{{type:'doughnut',data:{{labels:['Reincidentes','Nuevos'],datasets:[{{data:[{reinc},{nuevos}],backgroundColor:['#185FA5','#1D9E75'],borderWidth:0}}]}},options:{{responsive:true,maintainAspectRatio:false,plugins:{{legend:{{display:false}}}},cutout:'70%'}}}});
-
-// Línea transacciones
-new Chart(document.getElementById('c2'),{{type:'line',data:{{labels:ML.labels,datasets:[{{label:'2025',data:D25T,borderColor:'#185FA5',backgroundColor:'rgba(24,95,165,0.08)',tension:0.4,fill:true}},{{label:'2026',data:D26T,borderColor:'#1D9E75',backgroundColor:'rgba(29,158,117,0.08)',tension:0.4,borderDash:[5,3],fill:false}}]}},options:{{...CFG,scales:{{y:{{beginAtZero:false}}}}}}}});
-
-// Barras comisión
-new Chart(document.getElementById('c1'),{{type:'bar',data:{{labels:ML.labels,datasets:[{{label:'2025',data:D25C,backgroundColor:'#185FA5'}},{{label:'2026',data:D26C,backgroundColor:'#1D9E75'}}]}},options:{{...CFG,scales:{{y:{{ticks:{{callback:v=>v>=1e6?'$'+v/1e6+'M':'$'+v/1e3+'K'}}}}}}}}}});
-
-// Barras variación
-new Chart(document.getElementById('c4'),{{type:'bar',data:{{labels:ML.labels,datasets:[{{data:DV6,backgroundColor:DVC}}]}},options:{{...CFG,plugins:{{legend:{{display:false}}}},scales:{{y:{{ticks:{{callback:v=>v>=1e6?'$'+v/1e6+'M':'$'+v/1e3+'K'}}}}}}}}}});
-
-// Tabla cédulas
-var allRows=[].slice.call(document.querySelectorAll('#tb tr'));
-function f(){{
+new Chart(document.getElementById('c2'),{{type:'line',data:{{labels:ML,datasets:[{{label:'2025',data:D25T,borderColor:'#185FA5',backgroundColor:'rgba(24,95,165,0.08)',tension:0.4,fill:true}},{{label:'2026',data:D26T,borderColor:'#1D9E75',tension:0.4,borderDash:[5,3],fill:false}}]}},options:{{...CFG,scales:{{y:{{beginAtZero:false}}}}}}}});
+new Chart(document.getElementById('c1'),{{type:'bar',data:{{labels:ML,datasets:[{{label:'2025',data:D25C,backgroundColor:'#185FA5'}},{{label:'2026',data:D26C,backgroundColor:'#1D9E75'}}]}},options:{{...CFG,scales:{{y:{{ticks:{{callback:function(v){{return v>=1e6?'$'+v/1e6+'M':'$'+v/1e3+'K';}}}}}}}}}}}});
+new Chart(document.getElementById('c4'),{{type:'bar',data:{{labels:ML,datasets:[{{data:DV6,backgroundColor:DVC}}]}},options:{{...CFG,scales:{{y:{{ticks:{{callback:function(v){{return v>=1e6?'$'+v/1e6+'M':'$'+v/1e3+'K';}}}}}}}}}}}});
+var rows=[].slice.call(document.querySelectorAll('#tb tr'));
+function filtrar(){{
   var s=document.getElementById('s').value.toLowerCase();
   var o=document.getElementById('o').value;
   var vis=0;
-  allRows.forEach(function(r){{
+  rows.forEach(function(r){{
     var c=r.cells[1].textContent.toLowerCase();
     var v=r.cells[5].textContent.trim();
-    var ok=(c.includes(s)&&(!o||v===o));
+    var ok=c.includes(s)&&(!o||v.indexOf(o)>=0);
     r.style.display=ok?'':'none';
     if(ok)vis++;
   }});
-  document.getElementById('pi').textContent='Mostrando '+vis+' de {len(cedulas_all)} registros';
+  document.getElementById('pi').textContent='Mostrando '+vis+' de {n_ced} registros';
 }}
-f();
+filtrar();
 </script>
 </body>
-</html>"""
+</html>""".format(
+        mes=mes, anio=anio, css=css, trans=trans, sin_id=sin_id,
+        ident=ident, reinc=reinc, nuevos=nuevos,
+        pct_ident=pct_ident, pct_reinc=pct_reinc, pct_nuevo=pct_nuevo,
+        com_fmt=com_fmt, var_mes_str=var_mes_str, fh=fh, fc=fc, n_ced=n_ced,
+        jml=jml, jd25t=jd25t, jd26t=jd26t, jd25c=jd25c, jd26c=jd26c,
+        jdv6=jdv6, jdvc=jdvc
+    )
     return html.encode("utf-8")
+
 
 
 def _mes_anterior(mes):
