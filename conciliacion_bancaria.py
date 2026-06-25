@@ -312,12 +312,12 @@ def conciliar(df_banco, df_aux):
 # GENERACIÓN DEL EXCEL (3 hojas: CONCILIACION, BANCO, AUXILIAR)
 # ══════════════════════════════════════════════════════════════════════════
 
-def generar_excel(partidas, df_banco, df_aux, resumen, empresa, cuenta, mes):
+def generar_excel(partidas, df_banco, df_aux, resumen, empresa, cuenta, mes, df_aux_original=None):
     wb = openpyxl.Workbook()
 
     _hoja_conciliacion(wb, partidas, resumen, empresa, cuenta, mes)
     _hoja_banco(wb, df_banco)
-    _hoja_auxiliar(wb, df_aux)
+    _hoja_auxiliar(wb, df_aux, df_aux_original)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -330,94 +330,105 @@ def _hoja_conciliacion(wb, partidas, resumen, empresa, cuenta, mes):
     ws.title = "CONCILIACION"
 
     # Colores
-    azul    = PatternFill("solid", fgColor="BDD7EE")
-    verde   = PatternFill("solid", fgColor="C6E0B4")
+    azul     = PatternFill("solid", fgColor="BDD7EE")
+    verde    = PatternFill("solid", fgColor="C6E0B4")
     amarillo = PatternFill("solid", fgColor="FFEB9C")
-    rojo    = PatternFill("solid", fgColor="FFC7CE")
-    bold    = Font(bold=True)
-    fmt_num = '#,##0.00;(#,##0.00);"-"'
+    rojo     = PatternFill("solid", fgColor="FFC7CE")
+    bold     = Font(bold=True)
+    fmt_num  = '#,##0.00;(#,##0.00);"-"'
+    fmt_date = "DD/MM/YYYY"
 
-    # Fila 1-2: encabezado
-    ws["A1"] = "EMPRESA"; ws["B1"] = empresa
-    ws["A2"] = "CUENTA";  ws["B2"] = cuenta
-    ws["A3"] = "MES";     ws["B3"] = mes
-    ws["A4"] = ""
+    # Estructura de columnas (desde col A):
+    # A=OBSERVACION | B=CONCEPTO | C=FECHA | D=DEBITO | E=CREDITO |
+    # F=FECHA | G=CONCEPTO | H=OBSERVACION
 
-    # Fila 5: encabezados tabla
-    headers = ["", "OBSERVACION", "", "", "CONCEPTO", "FECHA", "DEBITO", "CREDITO",
-               "FECHA", "CONCEPTO", "OBSERVACION"]
-    for col, h in enumerate(headers, 1):
-        ws.cell(row=5, column=col, value=h).font = bold
+    # Fila 1: encabezados tabla
+    row = 1
+    hdrs = ["OBSERVACION", "CONCEPTO", "FECHA", "DEBITO", "CREDITO",
+            "FECHA", "CONCEPTO", "OBSERVACION"]
+    for col, h in enumerate(hdrs, 1):
+        c = ws.cell(row=row, column=col, value=h)
+        c.font = bold
 
-    # Fila 6: SALDO AUXILIAR
-    row = 6
-    ws.cell(row=row, column=5, value="SALDO AUXILIAR").font = bold
-    ws.cell(row=row, column=7, value=resumen["saldo_aux_deb"]).number_format  = fmt_num
-    ws.cell(row=row, column=8, value=resumen["saldo_aux_cred"]).number_format = fmt_num
-    ws.cell(row=row, column=10, value="SALDO AUXILIAR").font = bold
-    for col in range(5, 11):
+    # Fila 2: SALDO AUXILIAR
+    row = 2
+    ws.cell(row=row, column=2, value="SALDO AUXILIAR")
+    ws.cell(row=row, column=4, value=resumen["saldo_aux_deb"]).number_format  = fmt_num
+    ws.cell(row=row, column=5, value=resumen["saldo_aux_cred"]).number_format = fmt_num
+    ws.cell(row=row, column=7, value="SALDO AUXILIAR")
+    for col in range(1, 9):
         ws.cell(row=row, column=col).fill = azul
         ws.cell(row=row, column=col).font = bold
 
     # Partidas conciliatorias
-    row = 7
+    row = 3
     for p in partidas:
-        # Col 5=concepto_aux, 6=fecha_aux, 7=débito, 8=crédito, 9=fecha_banco, 10=concepto_banco
-        if p["conc_aux"]:
-            ws.cell(row=row, column=5, value=p["conc_aux"])
-        if p["fecha_aux"]:
-            try:
-                ws.cell(row=row, column=6, value=pd.Timestamp(p["fecha_aux"]).to_pydatetime())
-                ws.cell(row=row, column=6).number_format = "DD/MM/YYYY"
-            except Exception:
-                pass
-        if p["deb"] != 0:
-            ws.cell(row=row, column=7, value=p["deb"]).number_format = fmt_num
-        if p["cred"] != 0:
-            ws.cell(row=row, column=8, value=p["cred"]).number_format = fmt_num
-        if p["fecha_banco"]:
-            try:
-                ws.cell(row=row, column=9, value=pd.Timestamp(p["fecha_banco"]).to_pydatetime())
-                ws.cell(row=row, column=9).number_format = "DD/MM/YYYY"
-            except Exception:
-                pass
-        if p["conc_banco"]:
-            ws.cell(row=row, column=10, value=p["conc_banco"])
+        obs_tipo = {"RECLASIFICACION": "RECLASIFICACION",
+                    "SOLO_BANCO":      "SOLO BANCO",
+                    "SOLO_AUX":        "SOLO AUXILIAR"}.get(p["tipo"], "")
+
+        # Lado auxiliar (cols A-E)
+        if p["conc_aux"] or p["deb"] != 0:
+            ws.cell(row=row, column=1, value=obs_tipo)
+            ws.cell(row=row, column=2, value=p["conc_aux"])
+            if p["fecha_aux"]:
+                try:
+                    ws.cell(row=row, column=3, value=pd.Timestamp(p["fecha_aux"]).to_pydatetime())
+                    ws.cell(row=row, column=3).number_format = fmt_date
+                except Exception:
+                    pass
+            if p["deb"] != 0:
+                ws.cell(row=row, column=4, value=p["deb"]).number_format = fmt_num
+            if p["cred"] != 0:
+                ws.cell(row=row, column=5, value=p["cred"]).number_format = fmt_num
+
+        # Lado banco (cols F-H)
+        if p["conc_banco"] or p["fecha_banco"]:
+            if p["fecha_banco"]:
+                try:
+                    ws.cell(row=row, column=6, value=pd.Timestamp(p["fecha_banco"]).to_pydatetime())
+                    ws.cell(row=row, column=6).number_format = fmt_date
+                except Exception:
+                    pass
+            ws.cell(row=row, column=7, value=p["conc_banco"])
+            ws.cell(row=row, column=8, value=obs_tipo)
         row += 1
 
     # TOTAL AUXILIAR CONCILIADO
-    ws.cell(row=row, column=5, value="TOTAL AUXILIAR CONCILIADO").font = bold
-    ws.cell(row=row, column=7, value=resumen["total_conc_deb"]).number_format  = fmt_num
-    ws.cell(row=row, column=8, value=resumen["total_conc_cred"]).number_format = fmt_num
-    for col in range(5, 11):
+    ws.cell(row=row, column=2, value="TOTAL AUXILIAR CONCILIADO")
+    ws.cell(row=row, column=4, value=resumen["total_conc_deb"]).number_format  = fmt_num
+    ws.cell(row=row, column=5, value=resumen["total_conc_cred"]).number_format = fmt_num
+    for col in range(1, 9):
         ws.cell(row=row, column=col).fill = verde
         ws.cell(row=row, column=col).font = bold
     row += 1
 
-    # SALDO BANCO (espejo: banco_cred → deb / banco_deb → cred)
-    ws.cell(row=row, column=5, value="SALDO BANCO").font = bold
-    ws.cell(row=row, column=7, value=resumen["saldo_banco_cred"]).number_format = fmt_num
-    ws.cell(row=row, column=8, value=resumen["saldo_banco_deb"]).number_format  = fmt_num
-    for col in range(5, 11):
+    # SALDO BANCO
+    ws.cell(row=row, column=2, value="SALDO BANCO")
+    ws.cell(row=row, column=4, value=resumen["saldo_banco_cred"]).number_format = fmt_num
+    ws.cell(row=row, column=5, value=resumen["saldo_banco_deb"]).number_format  = fmt_num
+    for col in range(1, 9):
         ws.cell(row=row, column=col).fill = amarillo
         ws.cell(row=row, column=col).font = bold
     row += 1
 
     # DIFERENCIA
-    ws.cell(row=row, column=5, value="DIFERENCIA").font = bold
-    ws.cell(row=row, column=7, value=resumen["diferencia_deb"]).number_format  = fmt_num
-    ws.cell(row=row, column=8, value=resumen["diferencia_cred"]).number_format = fmt_num
-    for col in range(5, 11):
+    ws.cell(row=row, column=2, value="DIFERENCIA")
+    ws.cell(row=row, column=4, value=resumen["diferencia_deb"]).number_format  = fmt_num
+    ws.cell(row=row, column=5, value=resumen["diferencia_cred"]).number_format = fmt_num
+    for col in range(1, 9):
         ws.cell(row=row, column=col).fill = rojo
         ws.cell(row=row, column=col).font = bold
 
     # Ancho columnas
-    ws.column_dimensions["E"].width = 50
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 50
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 16
+    ws.column_dimensions["E"].width = 16
     ws.column_dimensions["F"].width = 14
-    ws.column_dimensions["G"].width = 16
-    ws.column_dimensions["H"].width = 16
-    ws.column_dimensions["I"].width = 14
-    ws.column_dimensions["J"].width = 50
+    ws.column_dimensions["G"].width = 50
+    ws.column_dimensions["H"].width = 18
 
 
 def _hoja_banco(wb, df_banco):
@@ -433,11 +444,17 @@ def _hoja_banco(wb, df_banco):
         ws.cell(row=r, column=4, value=row.CONCEPTO)
 
 
-def _hoja_auxiliar(wb, df_aux):
+def _hoja_auxiliar(wb, df_aux, df_aux_original=None):
+    """Si se pasa df_aux_original, usa todas sus columnas; sino usa df_aux normalizado."""
     ws = wb.create_sheet("AUXILIAR")
-    cols = list(df_aux.columns)
+    df = df_aux_original if df_aux_original is not None else df_aux
+    cols = list(df.columns)
+    bold = Font(bold=True)
     for col, h in enumerate(cols, 1):
-        ws.cell(row=1, column=col, value=h).font = Font(bold=True)
-    for r, row in enumerate(df_aux.itertuples(index=False), 2):
+        ws.cell(row=1, column=col, value=h).font = bold
+    for r, row in enumerate(df.itertuples(index=False), 2):
         for col, val in enumerate(row, 1):
-            ws.cell(row=r, column=col, value=val)
+            try:
+                ws.cell(row=r, column=col, value=val)
+            except Exception:
+                ws.cell(row=r, column=col, value=str(val))
