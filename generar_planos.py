@@ -73,7 +73,7 @@ def crear_planos(df_sheet1, config, df_area_banco, tipo_pago,
             continue
 
         # Construir las 3 hojas
-        df_cash     = _construir_cash_receipt(df_emp, empresa)
+        df_cash     = _construir_cash_receipt(df_emp, empresa, solo_cuota, inmovilizadas)
         df_services = _construir_services(df_emp, df_cash, inmovilizadas)
         df_payment  = _construir_payment_method(df_emp, df_cash, empresa)
 
@@ -106,12 +106,14 @@ def crear_planos(df_sheet1, config, df_area_banco, tipo_pago,
 # CONSTRUCCIÓN DE HOJAS
 # ══════════════════════════════════════════════════════════════════════════
 
-def _construir_cash_receipt(df, empresa):
+def _construir_cash_receipt(df, empresa, solo_cuota=None, inmovilizadas=None):
     """
     Replica la lógica de CashReceipt_demo:
     A=id(1), B="DC", C=104, D=fechaDocumento, E=fechaPago,
     F=detalle, G="CC", H=dni, I=factura, J=valorPago, K=1, L=1, M=1
     """
+    solo_cuota    = solo_cuota or []
+    inmovilizadas = inmovilizadas or {}
     rows = []
     consecutivo = 1
     for idx, row in df.iterrows():
