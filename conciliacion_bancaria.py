@@ -363,35 +363,29 @@ def _hoja_conciliacion(wb, partidas, resumen, empresa, cuenta, mes):
     # Partidas conciliatorias
     row = 3
     for p in partidas:
-        obs_tipo = {"RECLASIFICACION": "RECLASIFICACION",
-                    "SOLO_BANCO":      "SOLO BANCO",
-                    "SOLO_AUX":        "SOLO AUXILIAR"}.get(p["tipo"], "")
-
-        # Lado auxiliar (cols A-E)
-        if p["conc_aux"] or p["deb"] != 0:
-            ws.cell(row=row, column=1, value=obs_tipo)
+        # Lado auxiliar (cols A=OBS vacía | B=CONCEPTO | C=FECHA | D=DEBITO | E=CREDITO)
+        if p["conc_aux"]:
             ws.cell(row=row, column=2, value=p["conc_aux"])
-            if p["fecha_aux"]:
-                try:
-                    ws.cell(row=row, column=3, value=pd.Timestamp(p["fecha_aux"]).to_pydatetime())
-                    ws.cell(row=row, column=3).number_format = fmt_date
-                except Exception:
-                    pass
-            if p["deb"] != 0:
-                ws.cell(row=row, column=4, value=p["deb"]).number_format = fmt_num
-            if p["cred"] != 0:
-                ws.cell(row=row, column=5, value=p["cred"]).number_format = fmt_num
+        if p["fecha_aux"]:
+            try:
+                ws.cell(row=row, column=3, value=pd.Timestamp(p["fecha_aux"]).to_pydatetime())
+                ws.cell(row=row, column=3).number_format = fmt_date
+            except Exception:
+                pass
+        if p["deb"] != 0:
+            ws.cell(row=row, column=4, value=p["deb"]).number_format = fmt_num
+        if p["cred"] != 0:
+            ws.cell(row=row, column=5, value=p["cred"]).number_format = fmt_num
 
-        # Lado banco (cols F-H)
-        if p["conc_banco"] or p["fecha_banco"]:
-            if p["fecha_banco"]:
-                try:
-                    ws.cell(row=row, column=6, value=pd.Timestamp(p["fecha_banco"]).to_pydatetime())
-                    ws.cell(row=row, column=6).number_format = fmt_date
-                except Exception:
-                    pass
+        # Lado banco (cols F=FECHA | G=CONCEPTO | H=OBS vacía)
+        if p["fecha_banco"]:
+            try:
+                ws.cell(row=row, column=6, value=pd.Timestamp(p["fecha_banco"]).to_pydatetime())
+                ws.cell(row=row, column=6).number_format = fmt_date
+            except Exception:
+                pass
+        if p["conc_banco"]:
             ws.cell(row=row, column=7, value=p["conc_banco"])
-            ws.cell(row=row, column=8, value=obs_tipo)
         row += 1
 
     # TOTAL AUXILIAR CONCILIADO
