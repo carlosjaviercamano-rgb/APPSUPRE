@@ -804,21 +804,23 @@ def render_generar_archivos():
 
     col1, col2 = st.columns(2)
 
-    # ── Exclusión de cédulas en planos ──────────────────────────────────
+    # ── Inicializar estados ──────────────────────────────────────────────
+    for key, default in [
+        ("cedulas_excluidas_planos", []),
+        ("cedulas_solo_cuota", []),
+        ("cedulas_inmovilizadas", {}),
+    ]:
+        if key not in st.session_state:
+            st.session_state[key] = default
+
+    # ── 1. Excluir cédulas de planos ─────────────────────────────────────
     st.markdown("#### 🚫 Excluir cédulas de planos")
     st.caption("Las cédulas excluidas no aparecerán en los planos pero sí en las compensaciones.")
 
-    if "cedulas_excluidas_planos" not in st.session_state:
-        st.session_state["cedulas_excluidas_planos"] = []
-
     col_exc, col_add = st.columns([3, 1])
     with col_exc:
-        nueva_exc = st.text_input(
-            "Cédula a excluir:",
-            key="input_cedula_excluir",
-            placeholder="Ingresa la cédula",
-            label_visibility="collapsed"
-        )
+        nueva_exc = st.text_input("Cédula a excluir:", key="input_cedula_excluir",
+                                   placeholder="Ingresa la cédula", label_visibility="collapsed")
     with col_add:
         if st.button("➕ Agregar", key="btn_agregar_excluir", use_container_width=True):
             if nueva_exc.strip() and nueva_exc.strip() not in st.session_state["cedulas_excluidas_planos"]:
@@ -828,12 +830,103 @@ def render_generar_archivos():
     if st.session_state["cedulas_excluidas_planos"]:
         for i, ced in enumerate(st.session_state["cedulas_excluidas_planos"]):
             col_c, col_x = st.columns([4, 1])
-            with col_c:
-                st.caption(f"🚫 {ced}")
+            with col_c: st.caption(f"🚫 {ced}")
             with col_x:
                 if st.button("✕", key=f"del_exc_{i}"):
-                    st.session_state["cedulas_excluidas_planos"].pop(i)
-                    st.rerun()
+                    st.session_state["cedulas_excluidas_planos"].pop(i); st.rerun()
+
+    st.markdown("---")
+
+    # ── 2. Pago solo a cuota ─────────────────────────────────────────────
+    st.markdown("#### 💳 Pago solo a cuota")
+    st.caption("Estas cédulas tendrán aplicaInteresMoratorio, aplicaDescuentoProntoPago y aplicaGestionCobranza = 0.")
+
+    col_sc, col_sc_add = st.columns([3, 1])
+    with col_sc:
+        nueva_sc = st.text_input("Cédula pago solo cuota:", key="input_solo_cuota",
+                                  placeholder="Ingresa la cédula", label_visibility="collapsed")
+    with col_sc_add:
+        if st.button("➕ Agregar", key="btn_agregar_sc", use_container_width=True):
+            if nueva_sc.strip() and nueva_sc.strip() not in st.session_state["cedulas_solo_cuota"]:
+                st.session_state["cedulas_solo_cuota"].append(nueva_sc.strip()); st.rerun()
+
+    if st.session_state["cedulas_solo_cuota"]:
+        for i, ced in enumerate(st.session_state["cedulas_solo_cuota"]):
+            col_c, col_x = st.columns([4, 1])
+            with col_c: st.caption(f"💳 {ced}")
+            with col_x:
+                if st.button("✕", key=f"del_sc_{i}"):
+                    st.session_state["cedulas_solo_cuota"].pop(i); st.rerun()
+
+    st.markdown("---")
+
+    # ── 3. Inmovilizadas ─────────────────────────────────────────────────
+    st.markdown("#### 🔒 Inmovilizadas")
+    st.caption("Aplica las 3 columnas en 0 y agrega servicios a la hoja Services.")
+
+    SERVICIOS_INMOV = [
+        ("Intereses moratorios",        "8888"),
+        ("Gestión Cobranza",            "919302"),
+        ("Inmovilización",              "19051"),
+        ("Parqueo",                     "19053"),
+        ("Inmovilización A-P",          "19052"),
+        ("Trasporte Inmovilización",    "19054"),
+    ]
+
+    col_im, col_im_add = st.columns([3, 1])
+    with col_im:
+        nueva_im = st.text_input("Cédula inmovilizada:", key="input_inmov",
+                                  placeholder="Ingresa la cédula", label_visibility="collapsed")
+    with col_im_add:
+        if st.button("➕ Agregar", key="btn_agregar_im", use_container_width=True):
+            ced_im = nueva_im.strip()
+            if ced_im and ced_im not in st.session_state["cedulas_inmovilizadas"]:
+                # Obtener cuota total de la tabla alistada
+                cuota_total = 0
+                if st.session_state.get("df_sheet1") is not None:
+                    df_s = st.session_state.df_sheet1
+                    filas = df_s[df_s["IDEN"].astype(str).str.strip() == ced_im]
+                    if not filas.empty and "CUOTA" in df_s.columns:
+                        cuota_total = float(filas["CUOTA"].iloc[0] or 0)
+                st.session_state["cedulas_inmovilizadas"][ced_im] = {
+                    "cuota_total": cuota_total,
+                    "servicios": {cod: 0 for _, cod in SERVICIOS_INMOV}
+                }
+                st.rerun()
+
+    for ced_im, data_im in list(st.session_state["cedulas_inmovilizadas"].items()):
+        with st.expander(f"🔒 Cédula {ced_im}", expanded=True):
+            col_x2 = st.columns([5, 1])
+            with col_x2[1]:
+                if st.button("✕ Quitar", key=f"del_im_{ced_im}"):
+                    del st.session_state["cedulas_inmovilizadas"][ced_im]; st.rerun()
+
+            # Campos de servicios
+            st.markdown("**Servicios:**")
+            cols_serv = st.columns(2)
+            suma_servicios = 0
+            for idx_s, (nombre_s, cod_s) in enumerate(SERVICIOS_INMOV):
+                with cols_serv[idx_s % 2]:
+                    val_s = st.number_input(
+                        f"{nombre_s} ({cod_s})",
+                        min_value=0.0, value=float(data_im["servicios"].get(cod_s, 0)),
+                        step=1000.0, format="%.0f",
+                        key=f"serv_{ced_im}_{cod_s}"
+                    )
+                    st.session_state["cedulas_inmovilizadas"][ced_im]["servicios"][cod_s] = val_s
+                    suma_servicios += val_s
+
+            cuota_total = data_im["cuota_total"]
+            valor_cuota = cuota_total - suma_servicios
+
+            st.markdown("---")
+            col_t, col_v = st.columns(2)
+            with col_t:
+                st.metric("Total cuota", f"${cuota_total:,.0f}")
+            with col_v:
+                st.metric("Valor cuota (CashReceipt)",
+                          f"${valor_cuota:,.0f}",
+                          delta=f"-${suma_servicios:,.0f}" if suma_servicios > 0 else None)
 
     st.markdown("---")
 
@@ -851,7 +944,9 @@ def render_generar_archivos():
                         st.session_state.config,
                         st.session_state.df_area_banco,
                         st.session_state.tipo_pago,
-                        st.session_state.get("cedulas_excluidas_planos", [])
+                        st.session_state.get("cedulas_excluidas_planos", []),
+                        st.session_state.get("cedulas_solo_cuota", []),
+                        st.session_state.get("cedulas_inmovilizadas", {})
                     )
                     st.success(f"✅ {resultado}")
                 except Exception as e:
