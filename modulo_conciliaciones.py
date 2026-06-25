@@ -350,19 +350,15 @@ def render_bancaria():
 
 
 def _render_conciliar_bancaria():
-    from conciliacion_bancaria import detectar_y_parsear_extracto, conciliar, MESES as MESES_CB
+    from conciliacion_bancaria import detectar_y_parsear_extracto, conciliar, generar_excel, MESES as MESES_CB, EMPRESAS_CUENTAS
 
     archivos_aux = st.session_state.get("banc_auxiliares", [])
     extracto     = st.session_state.get("banc_extracto")
     empresa      = st.session_state.get("banc_empresa", "")
     cuenta_nom   = st.session_state.get("banc_cuenta", "")
-    cod_cuenta   = None
     mes          = st.session_state.get("banc_mes", "")
-
-    # Recalcular código cuenta
-    from conciliacion_bancaria import EMPRESAS_CUENTAS
-    cuentas_emp = EMPRESAS_CUENTAS.get(empresa, [])
-    cod_cuenta  = next((c[1] for c in cuentas_emp if c[0] == cuenta_nom), None)
+    cuentas_emp  = EMPRESAS_CUENTAS.get(empresa, [])
+    cod_cuenta   = next((c[1] for c in cuentas_emp if c[0] == cuenta_nom), None)
 
     if not archivos_aux:
         st.warning("\u26a0\ufe0f Primero carga los auxiliares en la pesta\u00f1a **1. Cargar Archivos**.")
@@ -379,7 +375,7 @@ def _render_conciliar_bancaria():
                              use_container_width=True, key="btn_conciliar_bancaria")
     with col_lim:
         if st.button("\U0001f504 Limpiar", use_container_width=True, key="btn_limpiar_bancaria"):
-            for k in ["banc_resultado","banc_resumen"]:
+            for k in ["banc_resumen","banc_excel"]:
                 st.session_state.pop(k, None)
             st.rerun()
 
@@ -393,33 +389,25 @@ def _render_conciliar_bancaria():
                     st.error("\u274c No se pudieron leer datos del extracto.")
                     return
 
-                # 2. Leer y filtrar auxiliares por empresa+cuenta+mes
+                # 2. Filtrar auxiliares
                 mes_idx = MESES_CB.index(mes) + 1 if mes in MESES_CB else None
                 frames = []
                 for archivo in archivos_aux:
                     try:
                         archivo.seek(0)
                         df = pd.read_excel(archivo, sheet_name=0)
-                        df.columns = [c.strip().lower() for c in df.columns]
-                        # Limpiar columnas NaN
                         df = df.loc[:, df.columns.notna()]
                         df = df.loc[:, ~df.columns.astype(str).str.lower().isin(["nan","none",""])]
-
-                        # Filtrar empresa (case-insensitive)
+                        df.columns = [c.strip().lower() for c in df.columns]
                         if "empresa" in df.columns:
                             df = df[df["empresa"].astype(str).str.strip().str.lower() == empresa.lower()]
-
-                        # Filtrar cuenta — columna codigocuenta
                         col_c = next((c for c in df.columns if "codigocuenta" in c.lower() or "codigo_cuenta" in c.lower()), None)
                         if col_c:
                             df = df[pd.to_numeric(df[col_c], errors="coerce").fillna(0).astype(int).astype(str) == str(cod_cuenta).strip()]
-
-                        # Filtrar mes (soporta DD/MM/YYYY y YYYY-MM-DD)
                         col_f = next((c for c in df.columns if c == "fecha"), None)
                         if col_f and mes_idx:
                             df[col_f] = pd.to_datetime(df[col_f], dayfirst=True, errors="coerce")
                             df = df[df[col_f].dt.month == mes_idx]
-
                         if not df.empty:
                             frames.append(df)
                         del df
@@ -432,69 +420,63 @@ def _render_conciliar_bancaria():
 
                 df_aux = pd.concat(frames, ignore_index=True)
 
-                # Mapear columnas del auxiliar
+                # 3. Normalizar columnas auxiliar
                 col_map = {}
                 for col in df_aux.columns:
-                    col_n = col.lower().strip()
-                    if col_n == "fecha": col_map["fecha"] = col
-                    if "descripci" in col_n: col_map["descripcion"] = col
-                    if col_n in ["debito","débito"]: col_map["debito"] = col
-                    if col_n in ["credito","crédito"]: col_map["credito"] = col
-                    if col_n == "valor": col_map["valor"] = col
-                st.caption(f"Columnas detectadas: {col_map}")
+                    cn = col.lower().strip()
+                    if cn == "fecha": col_map["fecha"] = col
+                    if "descripci" in cn: col_map["descripcion"] = col
+                    if cn in ["debito","débito"]: col_map["debito"] = col
+                    if cn in ["credito","crédito"]: col_map["credito"] = col
 
-                df_aux_norm = pd.DataFrame()
-                df_aux_norm["fecha"]       = pd.to_datetime(df_aux.get(col_map.get("fecha"), pd.Series(dtype=str)), errors="coerce")
-                df_aux_norm["descripcion"] = df_aux.get(col_map.get("descripcion",""), pd.Series(dtype=str)).astype(str)
-                df_aux_norm["debito"]      = pd.to_numeric(df_aux.get(col_map.get("debito",""), 0), errors="coerce").fillna(0).round(2)
-                df_aux_norm["credito"]     = pd.to_numeric(df_aux.get(col_map.get("credito",""), 0), errors="coerce").fillna(0).round(2)
-                df_aux_norm["valor"]       = pd.to_numeric(df_aux.get(col_map.get("valor",""), 0), errors="coerce").fillna(0).round(2)
+                df_norm = pd.DataFrame()
+                df_norm["fecha"]       = pd.to_datetime(df_aux[col_map.get("fecha", df_aux.columns[0])], dayfirst=True, errors="coerce")
+                df_norm["descripcion"] = df_aux[col_map.get("descripcion", df_aux.columns[0])].astype(str)
+                df_norm["debito"]      = pd.to_numeric(df_aux[col_map.get("debito",  df_aux.columns[0])], errors="coerce").fillna(0).round(2)
+                df_norm["credito"]     = pd.to_numeric(df_aux[col_map.get("credito", df_aux.columns[0])], errors="coerce").fillna(0).round(2)
 
-                # 3. Conciliar
-                df_result, resumen = conciliar(df_banco, df_aux_norm)
-                st.session_state["banc_resultado"] = df_result
-                st.session_state["banc_resumen"]   = resumen
+                # 4. Conciliar
+                partidas, df_b, df_a, resumen = conciliar(df_banco, df_norm)
+
+                # 5. Generar Excel
+                excel_bytes = generar_excel(partidas, df_b, df_a, resumen, empresa, cuenta_nom, mes)
+                st.session_state["banc_resumen"] = resumen
+                st.session_state["banc_excel"]   = excel_bytes
                 st.success("\u2705 Conciliaci\u00f3n completada.")
+
             except Exception as e:
                 st.error(f"\u274c Error: {str(e)}")
                 import traceback
                 st.code(traceback.format_exc())
 
-    # Mostrar resultado
-    df_result = st.session_state.get("banc_resultado")
-    resumen   = st.session_state.get("banc_resumen")
-
-    if df_result is not None and resumen is not None:
+    resumen = st.session_state.get("banc_resumen")
+    if resumen is not None:
         st.markdown("---")
         st.markdown("#### \U0001f4ca Resumen")
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Total banco d\u00e9bito",  f"${resumen['total_banco_debito']:,.2f}")
-        c2.metric("Total banco cr\u00e9dito", f"${resumen['total_banco_credito']:,.2f}")
-        c3.metric("\u2705 Conciliados",       f"{resumen['conciliados']:,}")
-        c4.metric("\U0001f3e6 Solo banco",    f"{resumen['solo_banco']:,}")
-        c5.metric("\U0001f4d2 Solo auxiliar", f"{resumen['solo_auxiliar']:,}")
+        c1,c2,c3,c4,c5,c6 = st.columns(6)
+        c1.metric("Saldo aux débito",    f"${resumen['saldo_aux_deb']:,.2f}")
+        c2.metric("Saldo aux crédito",   f"${resumen['saldo_aux_cred']:,.2f}")
+        c3.metric("Saldo banco débito",  f"${resumen['saldo_banco_deb']:,.2f}")
+        c4.metric("Saldo banco crédito", f"${resumen['saldo_banco_cred']:,.2f}")
+        c5.metric("\u2705 Cruzados banco", f"{resumen['conciliados_banco']:,}")
+        c6.metric("\u2705 Cruzados aux",   f"{resumen['conciliados_aux']:,}")
 
-        dif_deb = resumen["diferencia_debito"]
-        dif_cre = resumen["diferencia_credito"]
-        if abs(dif_deb) < 0.01 and abs(dif_cre) < 0.01:
+        dif_d = resumen["diferencia_deb"]
+        dif_c = resumen["diferencia_cred"]
+        if abs(dif_d) < 0.01 and abs(dif_c) < 0.01:
             st.success("\u2705 DIFERENCIA = $0 \u2014 Cuenta conciliada correctamente.")
         else:
-            st.warning(f"\u26a0\ufe0f Diferencia d\u00e9bito: ${dif_deb:,.2f} | Diferencia cr\u00e9dito: ${dif_cre:,.2f}")
+            st.warning(f"\u26a0\ufe0f Diferencia déb: ${dif_d:,.2f} | Diferencia cré: ${dif_c:,.2f}")
+            st.caption(f"Solo banco: {resumen['n_solo_banco']} | Solo aux: {resumen['n_solo_aux']} | Reclasif: {resumen['n_reclasif']}")
 
-        st.markdown("#### \U0001f4cb Detalle de conciliaci\u00f3n")
-        st.dataframe(df_result, use_container_width=True, height=450)
-
-        import io as _io
-        buf = _io.BytesIO()
-        df_result.to_excel(buf, index=False, sheet_name="CONCILIACION")
-        buf.seek(0)
-        st.download_button(
-            label="\u2b07\ufe0f  Descargar resultado Excel",
-            data=buf.getvalue(),
-            file_name=f"CONCILIACION_{empresa}_{mes}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_bancaria"
-        )
+        if st.session_state.get("banc_excel"):
+            st.download_button(
+                label="\u2b07\ufe0f  Descargar Excel (CONCILIACION + BANCO + AUXILIAR)",
+                data=st.session_state["banc_excel"],
+                file_name=f"CONCILIACION_{empresa}_{mes}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_bancaria"
+            )
 
 
 def _render_conciliar_puentes():
