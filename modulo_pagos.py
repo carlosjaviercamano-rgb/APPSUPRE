@@ -727,7 +727,10 @@ def render_alistar_informacion():
     if st.session_state.get("df_sheet1_alertas"):
         alertas = st.session_state.df_sheet1_alertas
         from alistar import _resolver_escenarios_multifactura
-        df_extra = _resolver_escenarios_multifactura(alertas)
+        try:
+            df_extra = _resolver_escenarios_multifactura(alertas)
+        except Exception:
+            df_extra = None
 
         # Cuando el usuario confirma, concatenar base + distribuidos
         if st.session_state.get("distribuciones_confirmadas") is not None:
