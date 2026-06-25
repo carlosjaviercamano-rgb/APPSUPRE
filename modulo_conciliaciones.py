@@ -268,36 +268,224 @@ def _unir_auxiliares(archivos):
 # SUBMÓDULO 1: CONCILIACIÓN BANCARIA
 # ══════════════════════════════════════════════════════════════════════════
 def render_bancaria():
+    from conciliacion_bancaria import EMPRESAS_CUENTAS, MESES as MESES_CB
+    from conciliacion_bancaria import detectar_y_parsear_extracto, conciliar
+
     st.markdown("""
     <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);border-radius:10px;
                 padding:1rem 1.5rem;margin-bottom:1rem;">
-        <h3 style="color:#fff;margin:0">🏦 Conciliación Bancaria</h3>
+        <h3 style="color:#fff;margin:0">\U0001f3e6 Conciliaci\u00f3n Bancaria</h3>
         <p style="color:#93c5fd;margin:0.2rem 0 0 0;font-size:0.85rem">
             Libro Auxiliar + Extracto bancario</p>
     </div>
     """, unsafe_allow_html=True)
 
-    tab1, tab2 = st.tabs(["📂 1. Cargar Archivos", "🔍 2. Conciliar"])
+    tab1, tab2 = st.tabs(["\U0001f4c2 1. Cargar Archivos", "\U0001f50d 2. Conciliar"])
 
     with tab1:
-        df_aux = render_cargue_auxiliares("bancaria")
-        if df_aux is not None:
-            st.session_state["bancaria_df_auxiliar"] = df_aux
+        # Selectores
+        st.markdown("#### \u2699\ufe0f Configuraci\u00f3n")
+        col1, col2, col3 = st.columns(3)
+
+        empresas = list(EMPRESAS_CUENTAS.keys())
+        with col1:
+            empresa_sel = st.selectbox("Empresa", empresas, key="banc_empresa")
+        cuentas_emp   = EMPRESAS_CUENTAS.get(empresa_sel, [])
+        nombres_ctas  = [c[0] for c in cuentas_emp]
+        with col2:
+            cuenta_sel = st.selectbox("Cuenta bancaria", nombres_ctas, key="banc_cuenta")
+        codigo_cuenta = next((c[1] for c in cuentas_emp if c[0] == cuenta_sel), None)
+        with col3:
+            mes_sel = st.selectbox("Mes", MESES_CB, key="banc_mes")
+        st.caption(f"C\u00f3digo cuenta: **{codigo_cuenta}**")
 
         st.markdown("---")
-        st.markdown("#### 🏦 Extracto Bancario")
+
+        # Auxiliares
+        st.markdown("#### \U0001f4c2 Auxiliares")
+        st.caption("Sube hasta 15 auxiliares. Se filtrar\u00e1n al conciliar.")
+
+        _, col_lim_aux = st.columns([3,1])
+        with col_lim_aux:
+            if st.button("\U0001f504 Limpiar archivos", key="limpiar_aux_bancaria", use_container_width=True):
+                st.session_state.pop("banc_auxiliares", None)
+                st.rerun()
+
+        archivos_aux = st.file_uploader(
+            "Selecciona los auxiliares (.xlsx)",
+            type=["xlsx"], accept_multiple_files=True,
+            key="up_banc_auxiliares", label_visibility="collapsed"
+        )
+        if archivos_aux:
+            st.session_state["banc_auxiliares"] = archivos_aux[:15]
+
+        cargados = st.session_state.get("banc_auxiliares", [])
+        if cargados:
+            st.success(f"\u2705 {len(cargados)} auxiliar(es) listos.")
+            for a in cargados:
+                st.caption(f"   \U0001f4c4 {a.name}")
+
+        st.markdown("---")
+
+        # Extracto
+        st.markdown("#### \U0001f3e6 Extracto Bancario")
+        st.caption("Formato detectado autom\u00e1ticamente: Bancolombia CSV, Davivienda XLSX, Occidente/Bogot\u00e1 XLS.")
+
         extracto = st.file_uploader(
-            "Sube el extracto bancario",
-            type=["xlsx", "xls", "csv"],
-            key="up_extracto_bancario",
-            label_visibility="collapsed"
+            "Extracto bancario",
+            type=["csv","xlsx","xls","XLS"],
+            key="up_banc_extracto", label_visibility="collapsed"
         )
         if extracto:
-            st.session_state["bancaria_extracto"] = extracto
-            st.success(f"✅ {extracto.name}")
+            st.session_state["banc_extracto"] = extracto
+            st.success(f"\u2705 {extracto.name}")
+        elif st.session_state.get("banc_extracto"):
+            st.success(f"\u2705 {st.session_state['banc_extracto'].name}")
+
+        if cargados and st.session_state.get("banc_extracto"):
+            st.info("\U0001f449 Ve a la pesta\u00f1a **2. Conciliar** para ejecutar.")
 
     with tab2:
-        _render_conciliar_puentes()
+        _render_conciliar_bancaria()
+
+
+def _render_conciliar_bancaria():
+    from conciliacion_bancaria import detectar_y_parsear_extracto, conciliar, MESES as MESES_CB
+
+    archivos_aux = st.session_state.get("banc_auxiliares", [])
+    extracto     = st.session_state.get("banc_extracto")
+    empresa      = st.session_state.get("banc_empresa", "")
+    cuenta_nom   = st.session_state.get("banc_cuenta", "")
+    cod_cuenta   = None
+    mes          = st.session_state.get("banc_mes", "")
+
+    # Recalcular código cuenta
+    from conciliacion_bancaria import EMPRESAS_CUENTAS
+    cuentas_emp = EMPRESAS_CUENTAS.get(empresa, [])
+    cod_cuenta  = next((c[1] for c in cuentas_emp if c[0] == cuenta_nom), None)
+
+    if not archivos_aux:
+        st.warning("\u26a0\ufe0f Primero carga los auxiliares en la pesta\u00f1a **1. Cargar Archivos**.")
+        return
+    if not extracto:
+        st.warning("\u26a0\ufe0f Primero carga el extracto bancario en la pesta\u00f1a **1. Cargar Archivos**.")
+        return
+
+    st.markdown(f"### {empresa} | {cuenta_nom} | {mes}")
+
+    col_btn, col_lim = st.columns([3,1])
+    with col_btn:
+        ejecutar = st.button("\U0001f50d Conciliar", type="primary",
+                             use_container_width=True, key="btn_conciliar_bancaria")
+    with col_lim:
+        if st.button("\U0001f504 Limpiar", use_container_width=True, key="btn_limpiar_bancaria"):
+            for k in ["banc_resultado","banc_resumen"]:
+                st.session_state.pop(k, None)
+            st.rerun()
+
+    if ejecutar:
+        with st.spinner("Procesando..."):
+            try:
+                # 1. Parsear extracto
+                extracto.seek(0)
+                df_banco = detectar_y_parsear_extracto(extracto)
+                if df_banco.empty:
+                    st.error("\u274c No se pudieron leer datos del extracto.")
+                    return
+
+                # 2. Leer y filtrar auxiliares por empresa+cuenta+mes
+                mes_idx = MESES_CB.index(mes) + 1 if mes in MESES_CB else None
+                frames = []
+                for archivo in archivos_aux:
+                    try:
+                        archivo.seek(0)
+                        df = pd.read_excel(archivo, sheet_name=0)
+                        df.columns = [c.strip().lower() for c in df.columns]
+                        # Filtrar empresa
+                        if "empresa" in df.columns:
+                            df = df[df["empresa"].astype(str).str.strip().str.lower() == empresa.lower()]
+                        # Filtrar cuenta
+                        col_c = next((c for c in df.columns if "codigocuenta" in c or "codigo_cuenta" in c), None)
+                        if col_c:
+                            df = df[df[col_c].astype(str).str.strip() == str(cod_cuenta)]
+                        # Filtrar mes
+                        col_f = next((c for c in df.columns if c == "fecha"), None)
+                        if col_f and mes_idx:
+                            df[col_f] = pd.to_datetime(df[col_f], errors="coerce")
+                            df = df[df[col_f].dt.month == mes_idx]
+                        if not df.empty:
+                            frames.append(df)
+                        del df
+                    except Exception:
+                        continue
+
+                if not frames:
+                    st.error(f"\u274c No se encontraron datos para {empresa} / cuenta {cod_cuenta} / {mes}.")
+                    return
+
+                df_aux = pd.concat(frames, ignore_index=True)
+
+                # Mapear columnas del auxiliar
+                col_map = {}
+                for col in df_aux.columns:
+                    if "fecha" in col: col_map["fecha"] = col
+                    if "descripci" in col or "descripcion" in col: col_map["descripcion"] = col
+                    if col in ["debito","débito"]: col_map["debito"] = col
+                    if col in ["credito","crédito"]: col_map["credito"] = col
+                    if col == "valor": col_map["valor"] = col
+
+                df_aux_norm = pd.DataFrame()
+                df_aux_norm["fecha"]       = pd.to_datetime(df_aux.get(col_map.get("fecha"), pd.Series(dtype=str)), errors="coerce")
+                df_aux_norm["descripcion"] = df_aux.get(col_map.get("descripcion",""), pd.Series(dtype=str)).astype(str)
+                df_aux_norm["debito"]      = pd.to_numeric(df_aux.get(col_map.get("debito",""), 0), errors="coerce").fillna(0).round(2)
+                df_aux_norm["credito"]     = pd.to_numeric(df_aux.get(col_map.get("credito",""), 0), errors="coerce").fillna(0).round(2)
+                df_aux_norm["valor"]       = pd.to_numeric(df_aux.get(col_map.get("valor",""), 0), errors="coerce").fillna(0).round(2)
+
+                # 3. Conciliar
+                df_result, resumen = conciliar(df_banco, df_aux_norm)
+                st.session_state["banc_resultado"] = df_result
+                st.session_state["banc_resumen"]   = resumen
+                st.success("\u2705 Conciliaci\u00f3n completada.")
+            except Exception as e:
+                st.error(f"\u274c Error: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+
+    # Mostrar resultado
+    df_result = st.session_state.get("banc_resultado")
+    resumen   = st.session_state.get("banc_resumen")
+
+    if df_result is not None and resumen is not None:
+        st.markdown("---")
+        st.markdown("#### \U0001f4ca Resumen")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Total banco d\u00e9bito",  f"${resumen['total_banco_debito']:,.2f}")
+        c2.metric("Total banco cr\u00e9dito", f"${resumen['total_banco_credito']:,.2f}")
+        c3.metric("\u2705 Conciliados",       f"{resumen['conciliados']:,}")
+        c4.metric("\U0001f3e6 Solo banco",    f"{resumen['solo_banco']:,}")
+        c5.metric("\U0001f4d2 Solo auxiliar", f"{resumen['solo_auxiliar']:,}")
+
+        dif_deb = resumen["diferencia_debito"]
+        dif_cre = resumen["diferencia_credito"]
+        if abs(dif_deb) < 0.01 and abs(dif_cre) < 0.01:
+            st.success("\u2705 DIFERENCIA = $0 \u2014 Cuenta conciliada correctamente.")
+        else:
+            st.warning(f"\u26a0\ufe0f Diferencia d\u00e9bito: ${dif_deb:,.2f} | Diferencia cr\u00e9dito: ${dif_cre:,.2f}")
+
+        st.markdown("#### \U0001f4cb Detalle de conciliaci\u00f3n")
+        st.dataframe(df_result, use_container_width=True, height=450)
+
+        import io as _io
+        buf = _io.BytesIO()
+        df_result.to_excel(buf, index=False, sheet_name="CONCILIACION")
+        buf.seek(0)
+        st.download_button(
+            label="\u2b07\ufe0f  Descargar resultado Excel",
+            data=buf.getvalue(),
+            file_name=f"CONCILIACION_{empresa}_{mes}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_bancaria"
+        )
 
 
 def _render_conciliar_puentes():
