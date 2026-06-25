@@ -438,8 +438,8 @@ def _render_conciliar_bancaria():
                 # 4. Conciliar
                 partidas, df_b, df_a, resumen = conciliar(df_banco, df_norm)
 
-                # 5. Generar Excel
-                excel_bytes = generar_excel(partidas, df_b, df_a, resumen, empresa, cuenta_nom, mes)
+                # 5. Generar Excel (pasar auxiliar original con todas las columnas)
+                excel_bytes = generar_excel(partidas, df_b, df_a, resumen, empresa, cuenta_nom, mes, df_aux)
                 st.session_state["banc_resumen"] = resumen
                 st.session_state["banc_excel"]   = excel_bytes
                 st.success("\u2705 Conciliaci\u00f3n completada.")
