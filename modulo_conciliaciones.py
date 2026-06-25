@@ -409,10 +409,10 @@ def _render_conciliar_bancaria():
                         if "empresa" in df.columns:
                             df = df[df["empresa"].astype(str).str.strip().str.lower() == empresa.lower()]
 
-                        # Filtrar cuenta — buscar columna codigo_cuenta o codigocuenta
-                        col_c = next((c for c in df.columns if "codigo_cuenta" in c.lower() or "codigocuenta" in c.lower()), None)
+                        # Filtrar cuenta — columna codigocuenta
+                        col_c = next((c for c in df.columns if "codigocuenta" in c.lower() or "codigo_cuenta" in c.lower()), None)
                         if col_c:
-                            df = df[df[col_c].apply(lambda x: str(int(float(x))) if pd.notna(x) else "").str.strip() == str(cod_cuenta).strip()]
+                            df = df[pd.to_numeric(df[col_c], errors="coerce").fillna(0).astype(int).astype(str) == str(cod_cuenta).strip()]
 
                         # Filtrar mes
                         col_f = next((c for c in df.columns if c == "fecha"), None)
@@ -438,9 +438,10 @@ def _render_conciliar_bancaria():
                     col_n = col.lower().strip()
                     if col_n == "fecha": col_map["fecha"] = col
                     if "descripci" in col_n: col_map["descripcion"] = col
-                    if col_n in ["debito","débito","débito"]: col_map["debito"] = col
-                    if col_n in ["credito","crédito","crédito"]: col_map["credito"] = col
+                    if col_n in ["debito","débito"]: col_map["debito"] = col
+                    if col_n in ["credito","crédito"]: col_map["credito"] = col
                     if col_n == "valor": col_map["valor"] = col
+                st.caption(f"Columnas detectadas: {col_map}")
 
                 df_aux_norm = pd.DataFrame()
                 df_aux_norm["fecha"]       = pd.to_datetime(df_aux.get(col_map.get("fecha"), pd.Series(dtype=str)), errors="coerce")
