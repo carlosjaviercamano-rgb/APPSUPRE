@@ -9,7 +9,7 @@ import streamlit as st
 EMPRESAS = {
     "Movicap":       "ruta_movicap",
     "Suprecartera":  "ruta_suprecartera",
-    "Suprecredito": "ruta_suprecredito",
+    "Suprecreditos": "ruta_suprecredito",
     "TuCredito":     "ruta_tucredito",
 }
 
@@ -17,12 +17,14 @@ EMPRESAS = {
 METODO_PAGO = {
     "Movicap":       "0041",
     "TuCredito":     "0041",
-    "Suprecredito": "0041",
-    "Suprecartera":  "0041",
+    "Suprecreditos": "0040",
+    "Suprecartera":  "0040",
 }
 
 
-def crear_planos(df_sheet1, config, df_area_banco, tipo_pago, cedulas_excluidas=None):
+def crear_planos(df_sheet1, config, df_area_banco, tipo_pago,
+                 cedulas_excluidas=None, cedulas_solo_cuota=None,
+                 cedulas_inmovilizadas=None):
     if df_sheet1 is None or df_sheet1.empty:
         raise ValueError("No hay datos en Sheet1 para generar planos.")
 
@@ -39,8 +41,19 @@ def crear_planos(df_sheet1, config, df_area_banco, tipo_pago, cedulas_excluidas=
 
     archivos_generados = []
 
-    # Normalizar lista de exclusiones
-    excluidas = [str(c).strip() for c in (cedulas_excluidas or [])]
+    # Normalizar listas especiales
+    excluidas       = [str(c).strip() for c in (cedulas_excluidas or [])]
+    solo_cuota      = [str(c).strip() for c in (cedulas_solo_cuota or [])]
+    inmovilizadas   = {str(k).strip(): v for k,v in (cedulas_inmovilizadas or {}).items()}
+
+    SERVICIOS_INMOV = [
+        ("Intereses moratorios",      "8888"),
+        ("Gestión Cobranza",          "919302"),
+        ("Inmovilización",            "19051"),
+        ("Parqueo",                   "19053"),
+        ("Inmovilización A-P",        "19052"),
+        ("Trasporte Inmovilización",  "19054"),
+    ]
 
     for empresa in EMPRESAS:
         # Filtrar por empresa (columna COMPANY)
@@ -61,7 +74,7 @@ def crear_planos(df_sheet1, config, df_area_banco, tipo_pago, cedulas_excluidas=
 
         # Construir las 3 hojas
         df_cash     = _construir_cash_receipt(df_emp, empresa)
-        df_services = _construir_services(df_emp, df_cash)
+        df_services = _construir_services(df_emp, df_cash, inmovilizadas)
         df_payment  = _construir_payment_method(df_emp, df_cash, empresa)
 
         nombre = f"{tipo_str}_{empresa}_{fecha_str}_{hora_str}.xlsx"
@@ -114,70 +127,92 @@ def _construir_cash_receipt(df, empresa):
         # Si no tiene corresponsal → valorPago = CUOTA
         valor_pago = diferencia if valor_cb > 0 and diferencia > 0 else cuota
 
+        # Determinar si aplica 0 en columnas especiales
+        ced_str = str(cedula).strip()
+        es_solo_cuota    = ced_str in solo_cuota
+        es_inmovilizada  = ced_str in inmovilizadas
+
+        # Si inmovilizada, valor_pago = cuota_total - suma_servicios
+        if es_inmovilizada:
+            data_im = inmovilizadas[ced_str]
+            suma_serv  = sum(float(v or 0) for v in data_im["servicios"].values())
+            valor_pago = float(data_im["cuota_total"]) - suma_serv
+
+        aplica = 0 if (es_solo_cuota or es_inmovilizada) else 1
+
         rows.append({
             "id":                          consecutivo,
             "codigoTipoDocumento":         "DC",
-            "codigoCentroCosto":           102,
+            "codigoCentroCosto":           104,
             "fechaDocumento":              _fecha(row.get("FECHA_DOCUMENTO")),
             "fechaPago":                   _fecha(row.get("FECHA")),
             "detalle":                     row.get("DETALLE", ""),
             "codigoTipoDni":               "CC",
-            "dni":                         str(cedula).strip(),
+            "dni":                         ced_str,
             "factura":                     _factura(row.get("NUM_FACTURA", "")),
             "valorPago":                   valor_pago,
-            "aplicaInteresMoratorio":      1,
-            "aplicaDescuentoProntoPago":   1,
-            "aplicaGestionCobranza":       1,
+            "aplicaInteresMoratorio":      aplica,
+            "aplicaDescuentoProntoPago":   aplica,
+            "aplicaGestionCobranza":       aplica,
         })
         consecutivo += 1
 
     return pd.DataFrame(rows)
 
 
-def _construir_services(df, df_cash):
+def _construir_services(df, df_cash, inmovilizadas=None):
     """
     Replica la lógica de Services_demo:
     A=idDocumento, B=codigoServicio(según valor_cb/inmov/otros),
     C=valor, D=factura, F=dni, G="CC"
     """
+    inmovilizadas = inmovilizadas or {}
     rows = []
     for (idx, row_emp), (_, row_cash) in zip(df.iterrows(), df_cash.iterrows()):
-        cedula = row_cash.get("dni")
+        cedula  = row_cash.get("dni")
         if not cedula:
             continue
+        ced_str = str(cedula).strip()
 
         valor_cb      = _num(row_emp.get("VALOR_CB"))
         inmovilizacion = _num(row_emp.get("INMOVILIZACION"))
         otros_gastos   = _num(row_emp.get("OTROS_GASTOS"))
-        cuota          = _num(row_emp.get("CUOTA"))
+        id_doc         = row_cash.get("id", 1)
+        factura        = row_emp.get("NUM_FACTURA", "")
 
-        # Solo agrega fila si hay valor en VALOR_CB, INMOVILIZACION u OTROS_GASTOS
+        # Servicios normales (corresponsal, inmovilización base, otros)
         if valor_cb > 0:
-            codigo_servicio = 586325
-            valor_servicio  = valor_cb   # VALOR_CB = $10.000 corresponsal
+            rows.append({"idDocumento": id_doc, "codigoServicio": 586325,
+                         "valor": valor_cb, "factura": factura,
+                         "fechaVencimiento": None, "dni": cedula, "codigoTipoDni": "CC"})
         elif inmovilizacion > 0:
-            codigo_servicio = 19051
-            valor_servicio  = inmovilizacion
+            rows.append({"idDocumento": id_doc, "codigoServicio": 19051,
+                         "valor": inmovilizacion, "factura": factura,
+                         "fechaVencimiento": None, "dni": cedula, "codigoTipoDni": "CC"})
         elif otros_gastos > 0:
-            codigo_servicio = 11111
-            valor_servicio  = otros_gastos
-        else:
-            continue  # Sin valores especiales → no aparece en Services
+            rows.append({"idDocumento": id_doc, "codigoServicio": 11111,
+                         "valor": otros_gastos, "factura": factura,
+                         "fechaVencimiento": None, "dni": cedula, "codigoTipoDni": "CC"})
 
-        rows.append({
-            "idDocumento":      row_cash.get("id", 1),
-            "codigoServicio":   codigo_servicio,
-            "valor":            valor_servicio,
-            "factura":          row_emp.get("NUM_FACTURA", ""),
-            "fechaVencimiento": None,
-            "dni":              cedula,
-            "codigoTipoDni":    "CC",
-        })
+        # Servicios de inmovilizadas (agregar uno por cada servicio con valor > 0)
+        if ced_str in inmovilizadas:
+            data_im = inmovilizadas[ced_str]
+            for cod_s, val_s in data_im["servicios"].items():
+                if float(val_s or 0) > 0:
+                    rows.append({
+                        "idDocumento":      id_doc,
+                        "codigoServicio":   cod_s,
+                        "valor":            float(val_s),
+                        "factura":          factura,
+                        "fechaVencimiento": None,
+                        "dni":              cedula,
+                        "codigoTipoDni":    "CC",
+                    })
 
     return pd.DataFrame(rows)
 
 
-def _construir_payment_method(df, df_cash, empresa):
+def _construir_payment_method(df, df_cash, empresa, inmovilizadas=None):
     """
     Replica la lógica de PaymentMethod_demo:
     A=idDocumento, B=codigoMetodoPago(según empresa),
