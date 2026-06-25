@@ -112,22 +112,32 @@ def _parsear_xls(archivo):
     if fila_datos is None:
         raise ValueError("No se pudo detectar el formato XLS.")
 
+    # Para V2: detectar si créditos están en col N(13) u O(14)
+    # Bogotá tiene col N vacía, créditos en col O
+    col_cre_v2 = 13  # default Occidente V2
+    if tipo == 'v2' and ws.nrows > fila_datos:
+        # Verificar encabezado: si col N es vacía y col O tiene "Crédito"
+        hdr = ws.row_values(fila_datos - 1)
+        if len(hdr) > 14:
+            if str(hdr[13]).strip() == "" and "cr" in str(hdr[14]).lower():
+                col_cre_v2 = 14  # Bogotá
+
     rows = []
     for i in range(fila_datos, ws.nrows):
         row = ws.row_values(i)
         try:
             if tipo == 'v1':
-                fecha = _parse_fecha_str(str(row[0]))
+                fecha    = _parse_fecha_str(str(row[0]))
                 concepto = str(row[2]).strip()
-                deb_str = str(row[4]).replace('$','').replace(',','').strip()
-                cre_str = str(row[5]).replace('$','').replace(',','').strip()
-                debito  = round(float(deb_str or 0), 2)
-                credito = round(float(cre_str or 0), 2)
+                deb_str  = str(row[4]).replace('$','').replace(',','').strip()
+                cre_str  = str(row[5]).replace('$','').replace(',','').strip()
+                debito   = round(float(deb_str or 0), 2)
+                credito  = round(float(cre_str or 0), 2)
             else:
                 fecha    = _parse_fecha_str(str(row[1]))
                 concepto = str(row[4]).strip()
                 debito   = round(float(row[12] or 0), 2)
-                credito  = round(float(row[13] or 0), 2)
+                credito  = round(float(row[col_cre_v2] or 0), 2) if len(row) > col_cre_v2 else 0.0
             if not fecha or (debito == 0 and credito == 0): continue
             rows.append({"FECHA": fecha, "DEBITO": debito, "CREDITO": credito, "CONCEPTO": concepto})
         except Exception:
