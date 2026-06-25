@@ -5,3 +5,4 @@ requests
 streamlit-authenticator
 bcrypt
 PyYAML
+xlrd
