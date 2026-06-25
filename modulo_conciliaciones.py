@@ -414,10 +414,10 @@ def _render_conciliar_bancaria():
                         if col_c:
                             df = df[pd.to_numeric(df[col_c], errors="coerce").fillna(0).astype(int).astype(str) == str(cod_cuenta).strip()]
 
-                        # Filtrar mes
+                        # Filtrar mes (soporta DD/MM/YYYY y YYYY-MM-DD)
                         col_f = next((c for c in df.columns if c == "fecha"), None)
                         if col_f and mes_idx:
-                            df[col_f] = pd.to_datetime(df[col_f], errors="coerce")
+                            df[col_f] = pd.to_datetime(df[col_f], dayfirst=True, errors="coerce")
                             df = df[df[col_f].dt.month == mes_idx]
 
                         if not df.empty:
