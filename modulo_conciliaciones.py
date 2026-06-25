@@ -401,18 +401,25 @@ def _render_conciliar_bancaria():
                         archivo.seek(0)
                         df = pd.read_excel(archivo, sheet_name=0)
                         df.columns = [c.strip().lower() for c in df.columns]
-                        # Filtrar empresa
+                        # Limpiar columnas NaN
+                        df = df.loc[:, df.columns.notna()]
+                        df = df.loc[:, ~df.columns.astype(str).str.lower().isin(["nan","none",""])]
+
+                        # Filtrar empresa (case-insensitive)
                         if "empresa" in df.columns:
                             df = df[df["empresa"].astype(str).str.strip().str.lower() == empresa.lower()]
-                        # Filtrar cuenta
-                        col_c = next((c for c in df.columns if "codigocuenta" in c or "codigo_cuenta" in c), None)
+
+                        # Filtrar cuenta — buscar columna codigo_cuenta o codigocuenta
+                        col_c = next((c for c in df.columns if "codigo_cuenta" in c.lower() or "codigocuenta" in c.lower()), None)
                         if col_c:
-                            df = df[df[col_c].astype(str).str.strip() == str(cod_cuenta)]
+                            df = df[df[col_c].apply(lambda x: str(int(float(x))) if pd.notna(x) else "").str.strip() == str(cod_cuenta).strip()]
+
                         # Filtrar mes
                         col_f = next((c for c in df.columns if c == "fecha"), None)
                         if col_f and mes_idx:
                             df[col_f] = pd.to_datetime(df[col_f], errors="coerce")
                             df = df[df[col_f].dt.month == mes_idx]
+
                         if not df.empty:
                             frames.append(df)
                         del df
@@ -428,11 +435,12 @@ def _render_conciliar_bancaria():
                 # Mapear columnas del auxiliar
                 col_map = {}
                 for col in df_aux.columns:
-                    if "fecha" in col: col_map["fecha"] = col
-                    if "descripci" in col or "descripcion" in col: col_map["descripcion"] = col
-                    if col in ["debito","débito"]: col_map["debito"] = col
-                    if col in ["credito","crédito"]: col_map["credito"] = col
-                    if col == "valor": col_map["valor"] = col
+                    col_n = col.lower().strip()
+                    if col_n == "fecha": col_map["fecha"] = col
+                    if "descripci" in col_n: col_map["descripcion"] = col
+                    if col_n in ["debito","débito","débito"]: col_map["debito"] = col
+                    if col_n in ["credito","crédito","crédito"]: col_map["credito"] = col
+                    if col_n == "valor": col_map["valor"] = col
 
                 df_aux_norm = pd.DataFrame()
                 df_aux_norm["fecha"]       = pd.to_datetime(df_aux.get(col_map.get("fecha"), pd.Series(dtype=str)), errors="coerce")
