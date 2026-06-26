@@ -106,7 +106,6 @@ COLUMNAS_AREA_BANCO = [
 ]
 
 def init_estado():
-    """Inicializa variables de sesión del módulo"""
     defaults = {
         "tipo_pago": None,
         "fecha_recaudo": None,
@@ -116,18 +115,16 @@ def init_estado():
         "archivo_clientes": None,
         "archivo_corresponsal": None,
         "paso_actual": 1,
-        "planos_generados": [],     # Lista de dicts {nombre, bytes, empresa}
+        "planos_generados": [],
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 def render():
-    """Punto de entrada del módulo"""
     init_estado()
     st.markdown(STYLES, unsafe_allow_html=True)
 
-    # Encabezado del módulo
     st.markdown("""
     <div class="module-header">
         <div class="module-icon">💳</div>
@@ -138,7 +135,6 @@ def render():
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Tabs del módulo ──────────────────────────────────────────────────
     tab1, tab2, tab3, tab4 = st.tabs([
         "📥 1. Carga de Archivos",
         "📊 2. Tabla de Pagos",
@@ -148,13 +144,10 @@ def render():
 
     with tab1:
         render_carga_archivos()
-
     with tab2:
         render_tabla_pagos()
-
     with tab3:
         render_alistar_informacion()
-
     with tab4:
         render_generar_archivos()
 
@@ -162,11 +155,9 @@ def render():
 # ══════════════════════════════════════════════════════════════════════════
 # TAB 1 — CARGA DE ARCHIVOS
 # ══════════════════════════════════════════════════════════════════════════
-# URL base del repositorio GitHub (raw)
 GITHUB_RAW = "https://raw.githubusercontent.com/carlosjaviercamano-rgb/APPSUPRE/main"
 
 def _cargar_desde_github(nombre_archivo):
-    """Carga un archivo Excel desde GitHub y lo retorna como BytesIO."""
     import requests
     import io
     url = f"{GITHUB_RAW}/{nombre_archivo}"
@@ -181,7 +172,6 @@ def render_carga_archivos():
     st.markdown('<div class="alerta-info">📌 Los archivos de Clientes Activos y Corresponsal se cargan automáticamente desde el repositorio. Solo debes subir el Libro de Banco cada vez que vayas a trabajar.</div>', unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Cargar automáticamente desde GitHub ─────────────────────────────
     if st.session_state.archivo_clientes is None:
         archivo = _cargar_desde_github("CLIENTES_ACTIVOS.xlsx")
         if archivo:
@@ -192,7 +182,6 @@ def render_carga_archivos():
         if archivo:
             st.session_state.archivo_corresponsal = archivo
 
-    # ── Solo cargador del Libro de Banco ────────────────────────────────
     st.markdown("**📂 Libro de Banco**")
     st.caption("Archivo descargado de SharePoint / OneDrive — se reemplaza cada vez que vayas a trabajar.")
 
@@ -206,7 +195,6 @@ def render_carga_archivos():
         st.session_state.archivo_libro = archivo_libro
         st.success(f"✅ {archivo_libro.name}")
 
-    # ── Estado de archivos ───────────────────────────────────────────────
     st.markdown("---")
     libro_ok        = st.session_state.archivo_libro is not None
     clientes_ok     = st.session_state.archivo_clientes is not None
@@ -220,9 +208,8 @@ def render_carga_archivos():
     if libro_ok and clientes_ok and corresponsal_ok:
         st.success("🎉 Todo listo. Ve a la pestaña **2. Tabla de Pagos** para continuar.")
     elif not clientes_ok or not corresponsal_ok:
-        st.warning("⚠️ No se pudieron cargar los archivos de referencia desde GitHub. Verifica que estén en el repositorio.")
+        st.warning("⚠️ No se pudieron cargar los archivos de referencia desde GitHub.")
 
-    # ── Actualizar archivos de referencia (admin) ────────────────────────
     with st.expander("🔧 Actualizar archivos de referencia"):
         st.caption("Solo usa esto si necesitas reemplazar manualmente Clientes Activos o Corresponsal.")
         col1, col2 = st.columns(2)
@@ -251,7 +238,7 @@ def render_carga_archivos():
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# TAB 2 — TABLA DE PAGOS (Extracción y tabla interactiva)
+# TAB 2 — TABLA DE PAGOS
 # ══════════════════════════════════════════════════════════════════════════
 def render_tabla_pagos():
     from extraccion import extraer_pagos_bancarios, extraer_pagos_recaudos
@@ -262,7 +249,6 @@ def render_tabla_pagos():
 
     st.markdown("### Selecciona el tipo de pago a trabajar")
 
-    # ── Selector tipo de pago ────────────────────────────────────────────
     col1, col2 = st.columns(2)
     with col1:
         sel1 = st.session_state.tipo_pago == "bancarios"
@@ -294,7 +280,6 @@ def render_tabla_pagos():
 
     st.markdown("---")
 
-    # ── Selector de fecha (solo para RECAUDOS) ───────────────────────────
     if st.session_state.tipo_pago == "recaudos":
         st.markdown("**📅 Fechas de trabajo** (máximo 5 fechas)")
         st.caption("Útil para fines de semana o días acumulados.")
@@ -302,7 +287,6 @@ def render_tabla_pagos():
         if "fechas_recaudo" not in st.session_state:
             st.session_state.fechas_recaudo = [None]
 
-        # Agregar / quitar fechas
         col_add, col_del = st.columns([1, 1])
         with col_add:
             if len(st.session_state.fechas_recaudo) < 5:
@@ -332,7 +316,6 @@ def render_tabla_pagos():
         st.caption(f"Fechas seleccionadas: **{fechas_str}**")
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # ── Filtro por entidad recaudadora ───────────────────────────────
         st.markdown("**🏢 Filtro por entidad recaudadora**")
         tipo_entidad = st.radio(
             "Tipo de filtro",
@@ -343,20 +326,13 @@ def render_tabla_pagos():
         )
         st.session_state["filtro_entidad_tipo"] = tipo_entidad
 
-        ENTIDADES_DISPONIBLES = [
-            "EFECTY",
-            "PSE",
-            "EFECTY-BANCO DE BOGOTA",
-            "RECORD"
-        ]
+        ENTIDADES_DISPONIBLES = ["EFECTY", "PSE", "EFECTY-BANCO DE BOGOTA", "RECORD"]
 
         if tipo_entidad == "Elegir por entidad":
-            # Iniciar con lista vacía
             if "entidades_recaudo" not in st.session_state or st.session_state.get("filtro_entidad_tipo_prev") != "Elegir por entidad":
                 st.session_state.entidades_recaudo = []
             st.session_state["filtro_entidad_tipo_prev"] = "Elegir por entidad"
 
-            # Mostrar selectbox por cada entidad agregada
             for i, ent in enumerate(st.session_state.entidades_recaudo):
                 ya_sel = [e for j, e in enumerate(st.session_state.entidades_recaudo) if j != i]
                 opciones = [e for e in ENTIDADES_DISPONIBLES if e not in ya_sel]
@@ -374,7 +350,6 @@ def render_tabla_pagos():
                         st.session_state.entidades_recaudo.pop(i)
                         st.rerun()
 
-            # Botón agregar (máx 3)
             if len(st.session_state.entidades_recaudo) < 3:
                 if st.button("➕ Agregar entidad", key="add_entidad"):
                     ya_sel = st.session_state.entidades_recaudo
@@ -395,7 +370,6 @@ def render_tabla_pagos():
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Botón de extracción ──────────────────────────────────────────────
     tipo_label = "Pagos Bancarios" if st.session_state.tipo_pago == "bancarios" else "Pagos por Recaudos"
     if st.button(f"⬇️  Extraer {tipo_label} del Libro de Banco", type="primary", use_container_width=True):
         with st.spinner("Leyendo el libro de banco y aplicando filtros..."):
@@ -420,12 +394,10 @@ def render_tabla_pagos():
                 import traceback
                 st.code(traceback.format_exc())
 
-    # ── Tabla interactiva ────────────────────────────────────────────────
     if st.session_state.df_area_banco is not None:
         df = st.session_state.df_area_banco
         st.markdown("---")
 
-        # Métricas rápidas
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Total registros", len(df))
         c2.metric("Corresponsales", df["T_TRANSACCION"].notna().sum() if "T_TRANSACCION" in df.columns else 0)
@@ -437,13 +409,10 @@ def render_tabla_pagos():
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<div class="tabla-header"><h3>📊 Área de Banco</h3></div>', unsafe_allow_html=True)
 
-        # Tabla editable
-        # Columnas visibles en orden AREA DE BANCO
         cols_visibles = ["FECHA", "ENTIDAD", "CEDULA", "VALOR", "FRA",
                          "RECIBOS", "FECHA_DOCUMENTO", "REINCIDENTES_CB", "COMPENSACION"]
         cols_mostrar = [c for c in cols_visibles if c in df.columns]
 
-        # Limpiar tipos para evitar conflictos en data_editor
         df_show = df[cols_mostrar].copy()
         for col in df_show.columns:
             if col in ["FECHA", "FECHA_DOCUMENTO"]:
@@ -466,7 +435,6 @@ def render_tabla_pagos():
                 "COMPENSACION":    st.column_config.TextColumn("Compensación"),
             }
         )
-        # Preservar columnas internas no visibles
         for col in df.columns:
             if col not in cols_mostrar:
                 df_editado[col] = df[col].values
@@ -487,27 +455,25 @@ def _mostrar_reemplazo_cedulas():
     st.markdown("### ⚠️ Cédulas no encontradas en base de clientes")
     st.markdown("Puedes reemplazar cédulas incorrectas o registrar clientes nuevos.")
 
-    # Inicializar estados
-    if "clientes_temporales"  not in st.session_state:
+    if "clientes_temporales" not in st.session_state:
         st.session_state["clientes_temporales"] = []
     if "cedulas_nuevas_set" not in st.session_state:
         st.session_state["cedulas_nuevas_set"] = set()
 
-    # Agrupar por cédula
     cedulas_agrupadas = defaultdict(list)
     for item in no_encontradas:
         cedulas_agrupadas[item["cedula"]].append(item)
 
     reemplazos = {}
+    df_banco = st.session_state.df_area_banco
 
     for i, (cedula, items) in enumerate(cedulas_agrupadas.items()):
         n_pagos     = len(items)
-        df_banco    = st.session_state.df_area_banco
         valores     = []
         for item in items:
             try:
                 val = df_banco.at[item["idx"], "VALOR"]
-                valores.append(float(str(val).replace(",","") or 0))
+                valores.append(float(str(val).replace(",", "") or 0))
             except Exception:
                 valores.append(0)
 
@@ -515,8 +481,23 @@ def _mostrar_reemplazo_cedulas():
         valores_str = " | ".join(f"${v:,.0f}" for v in valores)
         es_nuevo    = cedula in st.session_state["cedulas_nuevas_set"]
 
+        # Obtener entidad(es) de los movimientos de esta cédula
+        entidades_ced = []
+        for item in items:
+            try:
+                ent = str(df_banco.at[item["idx"], "ENTIDAD"]).strip()
+                if ent and ent not in ("nan", "None", "") and ent not in entidades_ced:
+                    entidades_ced.append(ent)
+            except Exception:
+                pass
+        entidad_str = " · ".join(entidades_ced) if entidades_ced else ""
+
         with st.container():
-            st.markdown(f"**Cédula {cedula}** | {pagos_str}: {valores_str}")
+            header = f"**Cédula {cedula}**"
+            if entidad_str:
+                header += f" | {entidad_str}"
+            header += f" | {pagos_str}: {valores_str}"
+            st.markdown(header)
 
             if not es_nuevo:
                 col_inp, col_btn = st.columns([3, 1])
@@ -561,7 +542,6 @@ def _mostrar_reemplazo_cedulas():
                         st.session_state["cedulas_nuevas_set"].discard(cedula)
                         st.rerun()
 
-                # Guardar/actualizar cliente temporal
                 existente = next((c for c in st.session_state["clientes_temporales"] if c["iden"] == cedula), None)
                 if existente:
                     existente["company"]     = company_sel
@@ -581,7 +561,6 @@ def _mostrar_reemplazo_cedulas():
 
             st.markdown("---")
 
-    # ── Botón confirmar ──────────────────────────────────────────────────
     if st.button("✅ Confirmar y continuar alistamiento",
                  use_container_width=True, type="primary",
                  key="btn_confirmar_reemplazo"):
@@ -629,7 +608,6 @@ def render_alistar_informacion():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Botón para limpiar y volver a alistar
     col_btn1, col_btn2 = st.columns([3, 1])
     with col_btn1:
         ejecutar = st.button("🔗  Alistar Información", type="primary", use_container_width=True)
@@ -644,19 +622,16 @@ def render_alistar_informacion():
             st.session_state["cedulas_reemplazadas"] = {}
             st.rerun()
 
-    # ── Paso previo: reemplazo de cédulas no encontradas ────────────────
     if st.session_state.get("pendiente_reemplazo"):
         _mostrar_reemplazo_cedulas()
-        return  # No continúa hasta que el usuario confirme
+        return
 
     if ejecutar:
         with st.spinner("Validando cédulas en base de clientes..."):
             try:
-                # Limpiar marcas previas
                 st.session_state["no_encontradas"] = []
                 st.session_state["cedulas_reemplazadas"] = {}
 
-                # Primera pasada: detectar no encontradas
                 df_clientes = pd.read_excel(
                     st.session_state.archivo_clientes, sheet_name="sheet1"
                 )
@@ -666,11 +641,10 @@ def render_alistar_informacion():
                 df_banco = st.session_state.df_area_banco.copy()
                 no_encontradas = []
                 for idx, row in df_banco.iterrows():
-                    cedula = str(row.get("CEDULA","")).strip()
+                    cedula = str(row.get("CEDULA", "")).strip()
                     if cedula and cedula != "nan" and cedula not in cedulas_activas:
                         no_encontradas.append({"idx": idx, "cedula": cedula})
 
-                # Filtrar las que ya fueron revisadas anteriormente
                 ya_revisadas = st.session_state.get("cedulas_ya_revisadas", set())
                 no_encontradas_nuevas = [
                     item for item in no_encontradas
@@ -678,7 +652,6 @@ def render_alistar_informacion():
                 ]
 
                 if no_encontradas_nuevas:
-                    # Guardar y mostrar recuadro de reemplazo
                     st.session_state["pendiente_reemplazo"] = no_encontradas_nuevas
                     st.rerun()
                     return
@@ -689,19 +662,16 @@ def render_alistar_informacion():
 
         with st.spinner("Cruzando información y procesando escenarios..."):
             try:
-                # Limpiar marcas previas
                 st.session_state["no_encontradas"] = []
 
                 df_resultado, alertas = alistar_informacion(
                     st.session_state.df_area_banco,
                     st.session_state.archivo_clientes
                 )
-                # Guardar base y alertas en sesión
                 st.session_state.df_sheet1_base    = df_resultado
                 st.session_state.df_sheet1_alertas = alertas
                 st.session_state.distribuciones_confirmadas = None
 
-                # ── Marcar cédulas no encontradas en AREA DE BANCO ──────
                 no_encontradas = st.session_state.get("no_encontradas", [])
                 if no_encontradas:
                     df_banco = st.session_state.df_area_banco.copy()
@@ -710,7 +680,7 @@ def render_alistar_informacion():
                             df_banco.at[idx2, "RECIBOS"] = "NO EXISTE"
                             if "COMPENSACION" in df_banco.columns:
                                 if df_banco.at[idx2, "COMPENSACION"] is None or str(df_banco.at[idx2, "COMPENSACION"]) in ("nan", "None", ""):
-                                    df_banco.at[idx2, "COMPENSACION"] = ""  
+                                    df_banco.at[idx2, "COMPENSACION"] = ""
                     st.session_state.df_area_banco = df_banco
                     st.warning(f"⚠️ {len(no_encontradas)} cédula(s) no encontradas en clientes activos. Marcadas como 'NO EXISTE' en la tabla.")
 
@@ -723,7 +693,6 @@ def render_alistar_informacion():
                 import traceback
                 st.code(traceback.format_exc())
 
-    # Si hay alertas pendientes mostrar el formulario de distribución
     if st.session_state.get("df_sheet1_alertas"):
         alertas = st.session_state.df_sheet1_alertas
         from alistar import _resolver_escenarios_multifactura
@@ -732,7 +701,6 @@ def render_alistar_informacion():
         except Exception:
             df_extra = None
 
-        # Cuando el usuario confirma, concatenar base + distribuidos
         if st.session_state.get("distribuciones_confirmadas") is not None:
             df_base  = st.session_state.get("df_sheet1_base", pd.DataFrame())
             df_extra = st.session_state["distribuciones_confirmadas"]
@@ -740,19 +708,14 @@ def render_alistar_informacion():
             st.session_state.df_sheet1 = df_final
             st.success(f"✅ Información alistada. {len(df_final)} registros procesados.")
 
-    # ── Tabla resultado ──────────────────────────────────────────────────
     if st.session_state.df_sheet1 is not None:
         df = st.session_state.df_sheet1
         st.markdown("---")
 
-        # Cuadre de control
-        df_banco      = st.session_state.df_area_banco
+        df_banco       = st.session_state.df_area_banco
         total_extraido = pd.to_numeric(df_banco["VALOR"], errors="coerce").sum() if df_banco is not None and "VALOR" in df_banco.columns else 0
-
-        # Total alistado (Sheet1)
         total_alistado = pd.to_numeric(df["CUOTA"], errors="coerce").sum() if "CUOTA" in df.columns else 0
 
-        # Total no encontrado (filas con RECIBOS = "NO EXISTE")
         total_no_encontrado = 0
         if df_banco is not None and "RECIBOS" in df_banco.columns and "VALOR" in df_banco.columns:
             mask_no = df_banco["RECIBOS"].astype(str).str.strip() == "NO EXISTE"
@@ -762,9 +725,9 @@ def render_alistar_informacion():
 
         st.markdown("#### 📊 Cuadre de Control")
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total extraído",       f"${total_extraido:,.0f}")
-        c2.metric("✅ Alistado",           f"${total_alistado:,.0f}")
-        c3.metric("❌ No encontrado",      f"${total_no_encontrado:,.0f}")
+        c1.metric("Total extraído",  f"${total_extraido:,.0f}")
+        c2.metric("✅ Alistado",      f"${total_alistado:,.0f}")
+        c3.metric("❌ No encontrado", f"${total_no_encontrado:,.0f}")
         if abs(diferencia) < 1:
             c4.metric("Diferencia", "$0", delta="✅ Cuadra", delta_color="normal")
         else:
@@ -804,7 +767,6 @@ def render_generar_archivos():
 
     col1, col2 = st.columns(2)
 
-    # ── Inicializar estados ──────────────────────────────────────────────
     for key, default in [
         ("cedulas_excluidas_planos", []),
         ("cedulas_solo_cuota", []),
@@ -881,7 +843,6 @@ def render_generar_archivos():
         if st.button("➕ Agregar", key="btn_agregar_im", use_container_width=True):
             ced_im = nueva_im.strip()
             if ced_im and ced_im not in st.session_state["cedulas_inmovilizadas"]:
-                # Obtener cuota total de la tabla alistada
                 cuota_total = 0
                 if st.session_state.get("df_sheet1") is not None:
                     df_s = st.session_state.df_sheet1
@@ -901,7 +862,6 @@ def render_generar_archivos():
                 if st.button("✕ Quitar", key=f"del_im_{ced_im}"):
                     del st.session_state["cedulas_inmovilizadas"][ced_im]; st.rerun()
 
-            # Campos de servicios
             st.markdown("**Servicios:**")
             cols_serv = st.columns(2)
             suma_servicios = 0
@@ -934,7 +894,6 @@ def render_generar_archivos():
         st.markdown("#### 📄 Planos por empresa")
         st.caption("Genera CashReceipt, Services y PaymentMethod para cada empresa.")
         if st.button("📄  Crear Planos", type="primary", use_container_width=True, key="btn_planos"):
-            # Limpiar planos anteriores
             st.session_state["planos_generados"] = []
             from generar_planos import crear_planos
             with st.spinner("Generando planos..."):
@@ -952,7 +911,6 @@ def render_generar_archivos():
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
 
-    # ── Botón único de descarga ZIP ──────────────────────────────────────
     planos = st.session_state.get("planos_generados", [])
     if planos:
         import zipfile as zf
@@ -961,7 +919,6 @@ def render_generar_archivos():
         st.markdown("---")
         st.markdown("#### 📥 Descargar planos generados:")
 
-        # Guardar ZIP en sesión para que el nombre no cambie en cada rerun
         if "planos_zip" not in st.session_state or st.session_state.get("planos_zip_count") != len(planos):
             zip_buf = _io.BytesIO()
             with zf.ZipFile(zip_buf, "w", zf.ZIP_DEFLATED) as zfile:
@@ -1041,7 +998,6 @@ def render_generar_archivos():
 
                 df_banco = df_banco.drop(columns=["FECHA_DOC_STR"])
 
-                # Marcar RECIBOS vacíos como APLICADO (mantener NO EXISTE)
                 mask_aplicado = (
                     df_banco["RECIBOS"].isna() |
                     (df_banco["RECIBOS"].astype(str).str.strip() == "") |
@@ -1052,7 +1008,7 @@ def render_generar_archivos():
                 st.session_state.df_area_banco = df_banco
                 st.success("✅ Consecutivos aplicados. Registros marcados como APLICADO en columna RECIBOS.")
 
-    # ── Exportar tabla de pagos con consecutivos ─────────────────────────
+    # ── Exportar tabla de pagos ───────────────────────────────────────────
     st.markdown("---")
     st.markdown("#### 💾 Exportar tabla de pagos")
     st.caption("Descarga la tabla de pagos con los consecutivos de compensación aplicados.")
@@ -1065,7 +1021,6 @@ def render_generar_archivos():
 
             df_export = st.session_state.df_area_banco.copy()
 
-            # Solo columnas visibles de AREA DE BANCO
             cols_visibles = ["FECHA", "ENTIDAD", "CEDULA", "VALOR", "FRA",
                              "RECIBOS", "FECHA_DOCUMENTO", "REINCIDENTES_CB", "COMPENSACION"]
             cols_export = [c for c in cols_visibles if c in df_export.columns]
@@ -1075,7 +1030,6 @@ def render_generar_archivos():
             ws = wb.active
             ws.title = "AREA DE BANCO"
 
-            # Encabezado
             header_fill = PatternFill("solid", fgColor="1F4E79")
             header_font = Font(bold=True, color="FFFFFF", size=10)
             for col_idx, col_name in enumerate(df_export.columns, start=1):
@@ -1084,7 +1038,6 @@ def render_generar_archivos():
                 cell.font      = header_font
                 cell.alignment = Alignment(horizontal="center")
 
-            # Datos
             cols_fecha = ["FECHA", "FECHA_DOCUMENTO"]
             idx_fechas = [list(df_export.columns).index(c)+1 for c in cols_fecha if c in df_export.columns]
 
@@ -1098,7 +1051,6 @@ def render_generar_archivos():
                         except Exception:
                             pass
 
-            # Ajustar anchos
             for col in ws.columns:
                 max_len = max((len(str(c.value)) if c.value else 0) for c in col)
                 ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 30)
