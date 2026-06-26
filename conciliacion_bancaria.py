@@ -279,27 +279,36 @@ def conciliar(df_banco, df_aux):
         Para cada movimiento del auxiliar busca en el banco el match de
         valor exacto con fecha más reciente (desempate por fecha DESC).
         """
-        # Construir lookup: valor → lista de idx_b ordenados por fecha DESC
         from collections import defaultdict
+
+        # Forzar copia y conversión de FECHA a datetime para poder ordenar
+        b_sub = df_banco_sub.copy()
+        b_sub["FECHA"] = pd.to_datetime(b_sub["FECHA"], errors="coerce")
+
+        # Construir lookup: valor → lista de (fecha, idx_b) ordenados por fecha DESC
         lookup = defaultdict(list)
-        banco_ord = df_banco_sub.sort_values("FECHA", ascending=False)
-        for _, rb in banco_ord.iterrows():
+        for _, rb in b_sub.iterrows():
             ib  = int(rb["_idx_b"])
             val = round(float(rb[col_banco]), 2)
-            lookup[val].append(ib)
+            fec = rb["FECHA"]
+            lookup[val].append((fec, ib))
+
+        # Ordenar cada lista por fecha DESC
+        for val in lookup:
+            lookup[val].sort(key=lambda x: x[0] if pd.notna(x[0]) else pd.Timestamp.min,
+                             reverse=True)
 
         pares = []
         for _, ra in df_aux_sub.iterrows():
             ia  = int(ra["_idx_a"])
             val = round(float(ra[col_aux]), 2)
             candidatos = lookup.get(val, [])
-            for ib in candidatos:
+            for i, (fec, ib) in enumerate(candidatos):
                 if ib not in b_match and ia not in a_match:
                     pares.append((ib, ia))
                     b_match.add(ib)
                     a_match.add(ia)
-                    # Eliminar ib del lookup para que no se reutilice
-                    lookup[val].remove(ib)
+                    candidatos.pop(i)  # eliminar para no reutilizar
                     break
         return pares
 
