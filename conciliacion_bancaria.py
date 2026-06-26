@@ -58,17 +58,18 @@ def _parsear_bancolombia_csv(archivo):
     rows = []
     for line in content.strip().split('\n'):
         parts = [p.strip() for p in line.split(',')]
-        if len(parts) < 8: continue
+        if len(parts) < 8:
+            continue
         try:
             fecha_str = parts[3].strip()
             if len(fecha_str) == 8:
                 fecha = datetime.strptime(fecha_str, '%Y%m%d')
             else:
                 continue
-            valor   = float(parts[5].strip().replace(' ',''))
+            valor    = float(parts[5].strip().replace(' ', ''))
             concepto = parts[7].strip()
-            debito  = round(abs(valor), 2) if valor < 0 else 0.0
-            credito = round(valor, 2)      if valor > 0 else 0.0
+            debito   = round(abs(valor), 2) if valor < 0 else 0.0
+            credito  = round(valor, 2)      if valor > 0 else 0.0
             rows.append({"FECHA": fecha, "DEBITO": debito, "CREDITO": credito, "CONCEPTO": concepto})
         except Exception:
             continue
@@ -80,13 +81,13 @@ def _parsear_davivienda_xlsx(archivo):
     rows = []
     for _, row in df.iterrows():
         try:
-            fecha   = pd.to_datetime(row.iloc[0], dayfirst=True)
+            fecha    = pd.to_datetime(row.iloc[0], dayfirst=True)
             concepto = str(row.iloc[2]).strip()
-            tipo    = str(row.iloc[3]).strip().lower()
-            val_str = str(row.iloc[7]).replace('$','').replace('.','').replace(',','.').strip()
-            valor   = float(val_str)
-            debito  = round(valor, 2) if 'débito' in tipo or 'debito' in tipo else 0.0
-            credito = round(valor, 2) if 'crédito' in tipo or 'credito' in tipo else 0.0
+            tipo     = str(row.iloc[3]).strip().lower()
+            val_str  = str(row.iloc[7]).replace('$','').replace('.','').replace(',','.').strip()
+            valor    = float(val_str)
+            debito   = round(valor, 2) if 'débito'  in tipo or 'debito'  in tipo else 0.0
+            credito  = round(valor, 2) if 'crédito' in tipo or 'credito' in tipo else 0.0
             rows.append({"FECHA": fecha, "DEBITO": debito, "CREDITO": credito, "CONCEPTO": concepto})
         except Exception:
             continue
@@ -99,7 +100,6 @@ def _parsear_xls(archivo):
     wb = xlrd.open_workbook(file_contents=content)
     ws = wb.sheet_by_index(0)
 
-    # Detectar versión
     fila_datos = None
     tipo = None
     for i in range(min(30, ws.nrows)):
@@ -112,15 +112,12 @@ def _parsear_xls(archivo):
     if fila_datos is None:
         raise ValueError("No se pudo detectar el formato XLS.")
 
-    # Para V2: detectar si créditos están en col N(13) u O(14)
-    # Bogotá tiene col N vacía, créditos en col O
-    col_cre_v2 = 13  # default Occidente V2
+    col_cre_v2 = 13
     if tipo == 'v2' and ws.nrows > fila_datos:
-        # Verificar encabezado: si col N es vacía y col O tiene "Crédito"
         hdr = ws.row_values(fila_datos - 1)
         if len(hdr) > 14:
             if str(hdr[13]).strip() == "" and "cr" in str(hdr[14]).lower():
-                col_cre_v2 = 14  # Bogotá
+                col_cre_v2 = 14
 
     rows = []
     for i in range(fila_datos, ws.nrows):
@@ -137,8 +134,9 @@ def _parsear_xls(archivo):
                 fecha    = _parse_fecha_str(str(row[1]))
                 concepto = str(row[4]).strip()
                 debito   = round(float(row[12] or 0), 2)
-                credito  = round(float(row[col_cre_v2] or 0), 2) if len(row) > col_cre_v2 else 0.0
-            if not fecha or (debito == 0 and credito == 0): continue
+                credito  = round(float(row[col_cre_v2] or 0) if len(row) > col_cre_v2 else 0, 2)
+            if not fecha or (debito == 0 and credito == 0):
+                continue
             rows.append({"FECHA": fecha, "DEBITO": debito, "CREDITO": credito, "CONCEPTO": concepto})
         except Exception:
             continue
@@ -147,165 +145,266 @@ def _parsear_xls(archivo):
 
 def _parse_fecha_str(s):
     s = s.strip()
-    for fmt in ['%Y/%m/%d','%d/%m/%Y','%Y-%m-%d','%d-%m-%Y']:
-        try: return datetime.strptime(s, fmt)
-        except: continue
+    for fmt in ['%Y/%m/%d', '%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y']:
+        try:
+            return datetime.strptime(s, fmt)
+        except:
+            continue
     return None
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# LÓGICA DE CONCILIACIÓN (replica la macro VBA)
+# PASO 1: FILTRAR DATOS (rápido, sin conciliar)
+# ══════════════════════════════════════════════════════════════════════════
+
+def filtrar_datos(archivos_aux, archivo_extracto, empresa, codigo_cuenta, mes_idx):
+    """
+    Solo filtra y lee los datos necesarios.
+    Retorna (df_banco, df_aux, df_aux_original, resumen_filtro) o lanza excepción.
+    """
+    # 1. Leer y filtrar auxiliares
+    mes_num = mes_idx + 1
+    frames_aux = []
+    frames_orig = []
+
+    for f in archivos_aux:
+        f.seek(0)
+        try:
+            df = pd.read_excel(f, sheet_name=0, header=0)
+        except Exception:
+            continue
+
+        # Limpiar columnas NaN al inicio
+        df = df.loc[:, ~df.columns.astype(str).str.match(r'^Unnamed|^nan$')]
+        df.columns = [str(c).strip().lower().replace(' ', '_') for c in df.columns]
+
+        # Detectar columna empresa
+        col_emp = next((c for c in df.columns if 'empresa' in c), None)
+        col_cta = next((c for c in df.columns if 'codigocuenta' in c or 'codigo_cuenta' in c), None)
+        col_fec = next((c for c in df.columns if c == 'fecha'), None)
+
+        if not col_emp or not col_cta or not col_fec:
+            continue
+
+        # Filtro empresa (case-insensitive)
+        mask_emp = df[col_emp].astype(str).str.upper().str.strip() == empresa.upper().strip()
+        df = df[mask_emp]
+
+        # Filtro cuenta
+        try:
+            mask_cta = pd.to_numeric(df[col_cta], errors='coerce').astype('Int64') == int(codigo_cuenta)
+            df = df[mask_cta]
+        except Exception:
+            continue
+
+        # Filtro mes
+        try:
+            df[col_fec] = pd.to_datetime(df[col_fec], dayfirst=True, errors='coerce')
+            mask_mes = df[col_fec].dt.month == mes_num
+            df = df[mask_mes]
+        except Exception:
+            continue
+
+        if len(df) == 0:
+            continue
+
+        frames_orig.append(df.copy())
+
+        # Normalizar para conciliación
+        col_deb = next((c for c in df.columns if c == 'debito'), None)
+        col_cre = next((c for c in df.columns if c == 'credito'), None)
+        col_des = next((c for c in df.columns if 'descripcion' in c or 'descripci' in c), None)
+
+        df_norm = pd.DataFrame({
+            "fecha":       df[col_fec].values,
+            "descripcion": df[col_des].astype(str).values if col_des else [""] * len(df),
+            "debito":      pd.to_numeric(df[col_deb], errors='coerce').fillna(0).round(2).values if col_deb else np.zeros(len(df)),
+            "credito":     pd.to_numeric(df[col_cre], errors='coerce').fillna(0).round(2).values if col_cre else np.zeros(len(df)),
+        })
+        frames_aux.append(df_norm)
+
+    if not frames_aux:
+        raise ValueError(f"No se encontraron datos para {empresa} / cuenta {codigo_cuenta} / mes {MESES[mes_idx]}.")
+
+    df_aux      = pd.concat(frames_aux,  ignore_index=True)
+    df_aux_orig = pd.concat(frames_orig, ignore_index=True)
+
+    # 2. Parsear extracto bancario
+    archivo_extracto.seek(0)
+    df_banco = detectar_y_parsear_extracto(archivo_extracto)
+
+    if df_banco.empty:
+        raise ValueError("El extracto bancario no tiene movimientos válidos.")
+
+    resumen_filtro = {
+        "n_banco": len(df_banco),
+        "n_aux":   len(df_aux),
+        "total_deb_banco":  round(df_banco["DEBITO"].sum(),  2),
+        "total_cre_banco":  round(df_banco["CREDITO"].sum(), 2),
+        "total_deb_aux":    round(df_aux["debito"].sum(),    2),
+        "total_cre_aux":    round(df_aux["credito"].sum(),   2),
+    }
+
+    return df_banco, df_aux, df_aux_orig, resumen_filtro
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PASO 2: CONCILIAR (rápido con merge en vez de loops anidados)
 # ══════════════════════════════════════════════════════════════════════════
 
 def conciliar(df_banco, df_aux):
     """
-    Replica exactamente la lógica de la macro ConciliacionBancaria:
-    1. Cruce exacto: banco.debito ↔ aux.credito / banco.credito ↔ aux.debito
-    2. Reclasificaciones auxiliar: mismo valor deb↔cre en filas distintas no cruzadas
-    3. Banco no cruzado → falta en auxiliar
-    4. Auxiliar no cruzado y no reclasificado → está de más
+    Cruce usando merge por valor exacto — mucho más rápido que loops anidados.
+    banco.DEBITO  ↔ aux.credito  (lo que sale del banco entra en aux)
+    banco.CREDITO ↔ aux.debito   (lo que entra al banco sale en aux)
     """
-    df_b = df_banco.copy()
-    df_a = df_aux.copy()
+    df_b = df_banco.copy().reset_index(drop=True)
+    df_a = df_aux.copy().reset_index(drop=True)
 
     df_b["DEBITO"]  = pd.to_numeric(df_b["DEBITO"],  errors="coerce").fillna(0).round(2)
     df_b["CREDITO"] = pd.to_numeric(df_b["CREDITO"], errors="coerce").fillna(0).round(2)
-    df_a["debito"]  = pd.to_numeric(df_a.get("debito",  0), errors="coerce").fillna(0).round(2)
-    df_a["credito"] = pd.to_numeric(df_a.get("credito", 0), errors="coerce").fillna(0).round(2)
+    df_a["debito"]  = pd.to_numeric(df_a["debito"],  errors="coerce").fillna(0).round(2)
+    df_a["credito"] = pd.to_numeric(df_a["credito"], errors="coerce").fillna(0).round(2)
 
-    nb = len(df_b)
-    na = len(df_a)
+    df_b["_idx_b"] = df_b.index
+    df_a["_idx_a"] = df_a.index
 
-    b_match   = [False] * nb
-    a_match   = [False] * na
-    a_reclass = [False] * na
+    b_match = set()
+    a_match = set()
 
-    # PASO 1: Cruce exacto banco ↔ auxiliar
-    for i in range(nb):
-        for j in range(na):
-            if b_match[i] or a_match[j]: continue
-            bd = df_b.iloc[i]["DEBITO"]
-            bc = df_b.iloc[i]["CREDITO"]
-            ad = df_a.iloc[j]["debito"]
-            ac = df_a.iloc[j]["credito"]
-            if bd > 0 and ac > 0 and abs(bd - ac) < 0.01:
-                b_match[i] = True; a_match[j] = True
-            elif bc > 0 and ad > 0 and abs(bc - ad) < 0.01:
-                b_match[i] = True; a_match[j] = True
+    # ── Cruce 1: banco DÉBITO ↔ aux CRÉDITO ──────────────────────────────
+    b_deb = df_b[df_b["DEBITO"] > 0][["_idx_b", "DEBITO"]].rename(columns={"DEBITO": "_val"})
+    a_cre = df_a[df_a["credito"] > 0][["_idx_a", "credito"]].rename(columns={"credito": "_val"})
 
-    # PASO 2: Reclasificaciones en auxiliar no cruzado
-    # mismo monto en débito de una fila y crédito de otra
-    for i in range(na):
-        if a_match[i] or a_reclass[i]: continue
-        ad_i = df_a.iloc[i]["debito"]
-        if ad_i <= 0: continue
-        for k in range(i+1, na):
-            if a_match[k] or a_reclass[k]: continue
-            ac_k = df_a.iloc[k]["credito"]
-            if ac_k > 0 and abs(ad_i - ac_k) < 0.01:
-                a_reclass[i] = True
-                a_reclass[k] = True
-                break
+    merged1 = pd.merge(b_deb, a_cre, on="_val", how="inner")
+    # Asegurar que cada índice se use solo una vez (primer match gana)
+    seen_b, seen_a = set(), set()
+    for _, row in merged1.iterrows():
+        ib, ia = int(row["_idx_b"]), int(row["_idx_a"])
+        if ib not in seen_b and ia not in seen_a and ib not in b_match and ia not in a_match:
+            b_match.add(ib); a_match.add(ia)
+            seen_b.add(ib);  seen_a.add(ia)
 
-    # Totales auxiliar
-    saldo_aux_deb  = round(df_a["debito"].sum(), 2)
-    saldo_aux_cred = round(df_a["credito"].sum(), 2)
+    # ── Cruce 2: banco CRÉDITO ↔ aux DÉBITO ──────────────────────────────
+    b_cre = df_b[(df_b["CREDITO"] > 0) & (~df_b["_idx_b"].isin(b_match))][["_idx_b", "CREDITO"]].rename(columns={"CREDITO": "_val"})
+    a_deb = df_a[(df_a["debito"]  > 0) & (~df_a["_idx_a"].isin(a_match))][["_idx_a", "debito"]].rename(columns={"debito":  "_val"})
 
-    # Totales banco (espejo)
-    saldo_banco_deb  = round(df_b["DEBITO"].sum(), 2)
+    merged2 = pd.merge(b_cre, a_deb, on="_val", how="inner")
+    seen_b, seen_a = set(), set()
+    for _, row in merged2.iterrows():
+        ib, ia = int(row["_idx_b"]), int(row["_idx_a"])
+        if ib not in seen_b and ia not in seen_a and ib not in b_match and ia not in a_match:
+            b_match.add(ib); a_match.add(ia)
+            seen_b.add(ib);  seen_a.add(ia)
+
+    # ── Reclasificaciones auxiliar (no cruzado: deb↔cre mismo valor) ─────
+    a_no_match = df_a[~df_a["_idx_a"].isin(a_match)].copy()
+    a_reclass  = set()
+
+    a_nd = a_no_match[a_no_match["debito"]  > 0][["_idx_a", "debito"]].rename(columns={"debito":  "_val"})
+    a_nc = a_no_match[a_no_match["credito"] > 0][["_idx_a", "credito"]].rename(columns={"credito": "_val"})
+    merged_rc = pd.merge(a_nd, a_nc, on="_val", suffixes=("_d", "_c"), how="inner")
+
+    seen_d, seen_c = set(), set()
+    for _, row in merged_rc.iterrows():
+        id_, ic = int(row["_idx_a_d"]), int(row["_idx_a_c"])
+        if id_ not in seen_d and ic not in seen_c and id_ not in a_reclass and ic not in a_reclass:
+            a_reclass.add(id_); a_reclass.add(ic)
+            seen_d.add(id_);    seen_c.add(ic)
+
+    # ── Totales ───────────────────────────────────────────────────────────
+    saldo_aux_deb   = round(df_a["debito"].sum(),  2)
+    saldo_aux_cred  = round(df_a["credito"].sum(), 2)
+    saldo_banco_deb  = round(df_b["DEBITO"].sum(),  2)
     saldo_banco_cred = round(df_b["CREDITO"].sum(), 2)
 
-    # Construir partidas conciliatorias
-    partidas = []  # {tipo, concepto_aux, fecha_aux, deb_aux, cred_aux, concepto_banco, fecha_banco, deb_banco, cred_banco}
+    # ── Construir partidas conciliatorias ─────────────────────────────────
+    partidas = []
 
     # 2A: Reclasificaciones
-    paired = [False] * na
-    for i in range(na):
-        if not a_reclass[i] or paired[i]: continue
-        ad_i = df_a.iloc[i]["debito"]
-        if ad_i <= 0: continue
-        for k in range(i+1, na):
-            if not a_reclass[k] or paired[k]: continue
-            ac_k = df_a.iloc[k]["credito"]
-            if ac_k > 0 and abs(ad_i - ac_k) < 0.01:
-                paired[i] = True; paired[k] = True
-                # Línea débito reclasificado (negativo)
-                partidas.append({
-                    "tipo": "RECLASIFICACION",
-                    "conc_aux": df_a.iloc[i].get("descripcion",""),
-                    "fecha_aux": df_a.iloc[i].get("fecha"),
-                    "deb": -ad_i, "cred": 0,
-                    "conc_banco": "", "fecha_banco": None,
-                })
-                # Línea crédito reclasificado (negativo)
-                partidas.append({
-                    "tipo": "RECLASIFICACION",
-                    "conc_aux": "",
-                    "fecha_aux": df_a.iloc[k].get("fecha"),
-                    "deb": 0, "cred": -ac_k,
-                    "conc_banco": df_a.iloc[k].get("descripcion",""),
-                    "fecha_banco": df_a.iloc[k].get("fecha"),
-                })
-                break
+    a_rd = a_no_match[a_no_match["_idx_a"].isin(a_reclass) & (a_no_match["debito"]  > 0)]
+    a_rc = a_no_match[a_no_match["_idx_a"].isin(a_reclass) & (a_no_match["credito"] > 0)]
 
-    # 2B: Banco no cruzado (falta en auxiliar — positivo)
-    for i in range(nb):
-        if b_match[i]: continue
-        bd = df_b.iloc[i]["DEBITO"]
-        bc = df_b.iloc[i]["CREDITO"]
-        conc = df_b.iloc[i]["CONCEPTO"]
-        fecha = df_b.iloc[i]["FECHA"]
+    val_rd = a_rd[["_idx_a", "debito"]].rename(columns={"debito": "_val"})
+    val_rc = a_rc[["_idx_a", "credito"]].rename(columns={"credito": "_val"})
+    pares_rc = pd.merge(val_rd, val_rc, on="_val", suffixes=("_d", "_c"))
+
+    done_d, done_c = set(), set()
+    for _, row in pares_rc.iterrows():
+        id_, ic = int(row["_idx_a_d"]), int(row["_idx_a_c"])
+        if id_ in done_d or ic in done_c:
+            continue
+        done_d.add(id_); done_c.add(ic)
+        val = float(row["_val"])
+        row_d = df_a.loc[id_]
+        row_c = df_a.loc[ic]
+        partidas.append({
+            "tipo": "RECLASIFICACION",
+            "conc_aux": str(row_d.get("descripcion", "")),
+            "fecha_aux": row_d.get("fecha"),
+            "deb": -val, "cred": 0,
+            "conc_banco": "", "fecha_banco": None,
+        })
+        partidas.append({
+            "tipo": "RECLASIFICACION",
+            "conc_aux": "",
+            "fecha_aux": row_c.get("fecha"),
+            "deb": 0, "cred": -val,
+            "conc_banco": str(row_c.get("descripcion", "")),
+            "fecha_banco": row_c.get("fecha"),
+        })
+
+    # 2B: Solo banco (falta en auxiliar)
+    for ib in df_b[~df_b["_idx_b"].isin(b_match)]["_idx_b"]:
+        row_b = df_b.loc[ib]
+        bd = float(row_b["DEBITO"])
+        bc = float(row_b["CREDITO"])
+        conc  = str(row_b["CONCEPTO"])
+        fecha = row_b["FECHA"]
         if bd > 0:
-            # banco débito = empresa crédito faltante → positivo en CRÉDITO
             partidas.append({"tipo": "SOLO_BANCO", "conc_aux": "", "fecha_aux": None,
-                             "deb": 0, "cred": bd,
-                             "conc_banco": conc, "fecha_banco": fecha})
+                             "deb": 0, "cred": bd, "conc_banco": conc, "fecha_banco": fecha})
         else:
-            # banco crédito = empresa débito faltante → positivo en DÉBITO
             partidas.append({"tipo": "SOLO_BANCO", "conc_aux": conc, "fecha_aux": fecha,
-                             "deb": bc, "cred": 0,
-                             "conc_banco": "", "fecha_banco": None})
+                             "deb": bc, "cred": 0, "conc_banco": "", "fecha_banco": None})
 
-    # 2C: Auxiliar no cruzado y no reclasificado (está de más — negativo)
-    for j in range(na):
-        if a_match[j] or a_reclass[j]: continue
-        ad = df_a.iloc[j]["debito"]
-        ac = df_a.iloc[j]["credito"]
-        conc  = df_a.iloc[j].get("descripcion","")
-        fecha = df_a.iloc[j].get("fecha")
+    # 2C: Solo auxiliar (está de más)
+    for ia in df_a[~df_a["_idx_a"].isin(a_match) & ~df_a["_idx_a"].isin(a_reclass)]["_idx_a"]:
+        row_a = df_a.loc[ia]
+        ad = float(row_a["debito"])
+        ac = float(row_a["credito"])
+        conc  = str(row_a.get("descripcion", ""))
+        fecha = row_a.get("fecha")
         if ad > 0:
             partidas.append({"tipo": "SOLO_AUX", "conc_aux": conc, "fecha_aux": fecha,
-                             "deb": -ad, "cred": 0,
-                             "conc_banco": "", "fecha_banco": None})
+                             "deb": -ad, "cred": 0, "conc_banco": "", "fecha_banco": None})
         else:
             partidas.append({"tipo": "SOLO_AUX", "conc_aux": "", "fecha_aux": None,
-                             "deb": 0, "cred": -ac,
-                             "conc_banco": conc, "fecha_banco": fecha})
+                             "deb": 0, "cred": -ac, "conc_banco": conc, "fecha_banco": fecha})
 
-    # Total auxiliar conciliado = saldo_aux + partidas
+    # ── Totales finales ───────────────────────────────────────────────────
     total_conc_deb  = round(saldo_aux_deb  + sum(p["deb"]  for p in partidas), 2)
     total_conc_cred = round(saldo_aux_cred + sum(p["cred"] for p in partidas), 2)
-
     diferencia_deb  = round(total_conc_deb  - saldo_banco_cred, 2)
     diferencia_cred = round(total_conc_cred - saldo_banco_deb,  2)
 
     resumen = {
-        "saldo_aux_deb":    saldo_aux_deb,
-        "saldo_aux_cred":   saldo_aux_cred,
-        "saldo_banco_deb":  saldo_banco_deb,
-        "saldo_banco_cred": saldo_banco_cred,
-        "total_conc_deb":   total_conc_deb,
-        "total_conc_cred":  total_conc_cred,
-        "diferencia_deb":   diferencia_deb,
-        "diferencia_cred":  diferencia_cred,
-        "n_reclasif":       sum(1 for p in partidas if p["tipo"]=="RECLASIFICACION"),
-        "n_solo_banco":     sum(1 for p in partidas if p["tipo"]=="SOLO_BANCO"),
-        "n_solo_aux":       sum(1 for p in partidas if p["tipo"]=="SOLO_AUX"),
-        "conciliados_banco": sum(b_match),
-        "conciliados_aux":   sum(a_match),
+        "saldo_aux_deb":     saldo_aux_deb,
+        "saldo_aux_cred":    saldo_aux_cred,
+        "saldo_banco_deb":   saldo_banco_deb,
+        "saldo_banco_cred":  saldo_banco_cred,
+        "total_conc_deb":    total_conc_deb,
+        "total_conc_cred":   total_conc_cred,
+        "diferencia_deb":    diferencia_deb,
+        "diferencia_cred":   diferencia_cred,
+        "n_reclasif":        sum(1 for p in partidas if p["tipo"] == "RECLASIFICACION"),
+        "n_solo_banco":      sum(1 for p in partidas if p["tipo"] == "SOLO_BANCO"),
+        "n_solo_aux":        sum(1 for p in partidas if p["tipo"] == "SOLO_AUX"),
+        "conciliados_banco": len(b_match),
+        "conciliados_aux":   len(a_match),
     }
 
-    return partidas, df_b, df_a, resumen
+    return partidas, df_b.drop(columns=["_idx_b"]), df_a.drop(columns=["_idx_a"]), resumen
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -314,11 +413,9 @@ def conciliar(df_banco, df_aux):
 
 def generar_excel(partidas, df_banco, df_aux, resumen, empresa, cuenta, mes, df_aux_original=None):
     wb = openpyxl.Workbook()
-
     _hoja_conciliacion(wb, partidas, resumen, empresa, cuenta, mes)
     _hoja_banco(wb, df_banco)
     _hoja_auxiliar(wb, df_aux, df_aux_original)
-
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -329,7 +426,6 @@ def _hoja_conciliacion(wb, partidas, resumen, empresa, cuenta, mes):
     ws = wb.active
     ws.title = "CONCILIACION"
 
-    # Colores
     azul     = PatternFill("solid", fgColor="BDD7EE")
     verde    = PatternFill("solid", fgColor="C6E0B4")
     amarillo = PatternFill("solid", fgColor="FFEB9C")
@@ -338,32 +434,26 @@ def _hoja_conciliacion(wb, partidas, resumen, empresa, cuenta, mes):
     fmt_num  = '#,##0.00;(#,##0.00);"-"'
     fmt_date = "DD/MM/YYYY"
 
-    # Estructura de columnas (desde col A):
-    # A=OBSERVACION | B=CONCEPTO | C=FECHA | D=DEBITO | E=CREDITO |
-    # F=FECHA | G=CONCEPTO | H=OBSERVACION
-
-    # Fila 1: encabezados tabla
-    row = 1
+    # Encabezados fila 1
     hdrs = ["OBSERVACION", "CONCEPTO", "FECHA", "DEBITO", "CREDITO",
             "FECHA", "CONCEPTO", "OBSERVACION"]
     for col, h in enumerate(hdrs, 1):
-        c = ws.cell(row=row, column=col, value=h)
-        c.font = bold
+        ws.cell(row=1, column=col, value=h).font = bold
 
     # Fila 2: SALDO AUXILIAR
-    row = 2
-    ws.cell(row=row, column=2, value="SALDO AUXILIAR")
-    ws.cell(row=row, column=4, value=resumen["saldo_aux_deb"]).number_format  = fmt_num
-    ws.cell(row=row, column=5, value=resumen["saldo_aux_cred"]).number_format = fmt_num
-    ws.cell(row=row, column=7, value="SALDO AUXILIAR")
+    ws.cell(row=2, column=2, value="SALDO AUXILIAR")
+    c4 = ws.cell(row=2, column=4, value=resumen["saldo_aux_deb"])
+    c4.number_format = fmt_num
+    c5 = ws.cell(row=2, column=5, value=resumen["saldo_aux_cred"])
+    c5.number_format = fmt_num
+    ws.cell(row=2, column=7, value="SALDO AUXILIAR")
     for col in range(1, 9):
-        ws.cell(row=row, column=col).fill = azul
-        ws.cell(row=row, column=col).font = bold
+        ws.cell(row=2, column=col).fill = azul
+        ws.cell(row=2, column=col).font = bold
 
-    # Partidas conciliatorias
+    # Partidas
     row = 3
     for p in partidas:
-        # Lado auxiliar (cols A=OBS vacía | B=CONCEPTO | C=FECHA | D=DEBITO | E=CREDITO)
         if p["conc_aux"]:
             ws.cell(row=row, column=2, value=p["conc_aux"])
         if p["fecha_aux"]:
@@ -376,8 +466,6 @@ def _hoja_conciliacion(wb, partidas, resumen, empresa, cuenta, mes):
             ws.cell(row=row, column=4, value=p["deb"]).number_format = fmt_num
         if p["cred"] != 0:
             ws.cell(row=row, column=5, value=p["cred"]).number_format = fmt_num
-
-        # Lado banco (cols F=FECHA | G=CONCEPTO | H=OBS vacía)
         if p["fecha_banco"]:
             try:
                 ws.cell(row=row, column=6, value=pd.Timestamp(p["fecha_banco"]).to_pydatetime())
@@ -414,37 +502,31 @@ def _hoja_conciliacion(wb, partidas, resumen, empresa, cuenta, mes):
         ws.cell(row=row, column=col).fill = rojo
         ws.cell(row=row, column=col).font = bold
 
-    # Ancho columnas
-    ws.column_dimensions["A"].width = 18
-    ws.column_dimensions["B"].width = 50
-    ws.column_dimensions["C"].width = 14
-    ws.column_dimensions["D"].width = 16
-    ws.column_dimensions["E"].width = 16
-    ws.column_dimensions["F"].width = 14
-    ws.column_dimensions["G"].width = 50
-    ws.column_dimensions["H"].width = 18
+    # Anchos
+    for col, w in zip("ABCDEFGH", [18, 50, 14, 16, 16, 14, 50, 18]):
+        ws.column_dimensions[col].width = w
 
 
 def _hoja_banco(wb, df_banco):
     ws = wb.create_sheet("BANCO")
-    headers = ["FECHA","DEBITO","CREDITO","CONCEPTO"]
+    headers = ["FECHA", "DEBITO", "CREDITO", "CONCEPTO"]
     for col, h in enumerate(headers, 1):
         ws.cell(row=1, column=col, value=h).font = Font(bold=True)
     for r, row in enumerate(df_banco.itertuples(index=False), 2):
-        try: ws.cell(row=r, column=1, value=row.FECHA).number_format = "DD/MM/YYYY"
-        except: ws.cell(row=r, column=1, value=str(row.FECHA))
+        try:
+            ws.cell(row=r, column=1, value=row.FECHA).number_format = "DD/MM/YYYY"
+        except:
+            ws.cell(row=r, column=1, value=str(row.FECHA))
         ws.cell(row=r, column=2, value=row.DEBITO)
         ws.cell(row=r, column=3, value=row.CREDITO)
         ws.cell(row=r, column=4, value=row.CONCEPTO)
 
 
 def _hoja_auxiliar(wb, df_aux, df_aux_original=None):
-    """Si se pasa df_aux_original, usa todas sus columnas; sino usa df_aux normalizado."""
-    ws = wb.create_sheet("AUXILIAR")
-    df = df_aux_original if df_aux_original is not None else df_aux
-    cols = list(df.columns)
+    ws  = wb.create_sheet("AUXILIAR")
+    df  = df_aux_original if df_aux_original is not None else df_aux
     bold = Font(bold=True)
-    for col, h in enumerate(cols, 1):
+    for col, h in enumerate(df.columns, 1):
         ws.cell(row=1, column=col, value=h).font = bold
     for r, row in enumerate(df.itertuples(index=False), 2):
         for col, val in enumerate(row, 1):
