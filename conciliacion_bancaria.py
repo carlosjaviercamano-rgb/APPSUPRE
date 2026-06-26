@@ -312,6 +312,12 @@ def conciliar(df_banco, df_aux):
                     break
         return pares
 
+    # ── DEBUG: mostrar fechas del banco antes del cruce ─────────────────
+    import streamlit as st
+    st.warning("🔍 DEBUG fechas banco (primeras 10 filas):")
+    st.dataframe(df_b[["FECHA","DEBITO","CREDITO","CONCEPTO"]].head(10))
+    st.caption(f"Tipo FECHA: {df_b['FECHA'].dtype}")
+
     # ── Cruce 1: banco DÉBITO ↔ aux CRÉDITO ──────────────────────────────
     b_deb_sub = df_b[df_b["DEBITO"]  > 0]
     a_cre_sub = df_a[df_a["credito"] > 0]
