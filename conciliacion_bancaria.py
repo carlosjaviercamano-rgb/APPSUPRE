@@ -86,8 +86,10 @@ def _parsear_davivienda_xlsx(archivo):
             tipo     = str(row.iloc[3]).strip().lower()
             val_str  = str(row.iloc[7]).replace('$','').replace('.','').replace(',','.').strip()
             valor    = float(val_str)
-            debito   = round(valor, 2) if 'débito'  in tipo or 'debito'  in tipo else 0.0
-            credito  = round(valor, 2) if 'crédito' in tipo or 'credito' in tipo else 0.0
+            es_debito  = 'débito'  in tipo or 'debito'  in tipo
+            es_credito = 'crédito' in tipo or 'credito' in tipo or 'deposito especial' in tipo
+            debito   = round(valor, 2) if es_debito  else 0.0
+            credito  = round(valor, 2) if es_credito else 0.0
             rows.append({"FECHA": fecha, "DEBITO": debito, "CREDITO": credito, "CONCEPTO": concepto})
         except Exception:
             continue
