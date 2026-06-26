@@ -268,6 +268,11 @@ def conciliar(df_banco, df_aux):
     df_a["debito"]  = pd.to_numeric(df_a["debito"],  errors="coerce").fillna(0).round(2)
     df_a["credito"] = pd.to_numeric(df_a["credito"], errors="coerce").fillna(0).round(2)
 
+    # Ordenar banco por fecha DESC: si hay dos movimientos con el mismo valor,
+    # el más reciente gana el cruce.
+    if "FECHA" in df_b.columns:
+        df_b = df_b.sort_values("FECHA", ascending=False).reset_index(drop=True)
+
     df_b["_idx_b"] = df_b.index
     df_a["_idx_a"] = df_a.index
 
