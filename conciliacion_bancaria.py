@@ -268,41 +268,50 @@ def conciliar(df_banco, df_aux):
     df_a["debito"]  = pd.to_numeric(df_a["debito"],  errors="coerce").fillna(0).round(2)
     df_a["credito"] = pd.to_numeric(df_a["credito"], errors="coerce").fillna(0).round(2)
 
-    # Ordenar banco por fecha DESC: si hay dos movimientos con el mismo valor,
-    # el más reciente gana el cruce.
-    if "FECHA" in df_b.columns:
-        df_b = df_b.sort_values("FECHA", ascending=False).reset_index(drop=True)
-
     df_b["_idx_b"] = df_b.index
     df_a["_idx_a"] = df_a.index
 
     b_match = set()
     a_match = set()
 
-    # ── Cruce 1: banco DÉBITO ↔ aux CRÉDITO ──────────────────────────────
-    b_deb = df_b[df_b["DEBITO"] > 0][["_idx_b", "DEBITO"]].rename(columns={"DEBITO": "_val"})
-    a_cre = df_a[df_a["credito"] > 0][["_idx_a", "credito"]].rename(columns={"credito": "_val"})
+    def _match_por_valor_fecha(df_banco_sub, col_banco, df_aux_sub, col_aux):
+        """
+        Para cada movimiento del auxiliar busca en el banco el match de
+        valor exacto con fecha más reciente (desempate por fecha DESC).
+        """
+        # Construir lookup: valor → lista de idx_b ordenados por fecha DESC
+        from collections import defaultdict
+        lookup = defaultdict(list)
+        banco_ord = df_banco_sub.sort_values("FECHA", ascending=False)
+        for _, rb in banco_ord.iterrows():
+            ib  = int(rb["_idx_b"])
+            val = round(float(rb[col_banco]), 2)
+            lookup[val].append(ib)
 
-    merged1 = pd.merge(b_deb, a_cre, on="_val", how="inner")
-    # Asegurar que cada índice se use solo una vez (primer match gana)
-    seen_b, seen_a = set(), set()
-    for _, row in merged1.iterrows():
-        ib, ia = int(row["_idx_b"]), int(row["_idx_a"])
-        if ib not in seen_b and ia not in seen_a and ib not in b_match and ia not in a_match:
-            b_match.add(ib); a_match.add(ia)
-            seen_b.add(ib);  seen_a.add(ia)
+        pares = []
+        for _, ra in df_aux_sub.iterrows():
+            ia  = int(ra["_idx_a"])
+            val = round(float(ra[col_aux]), 2)
+            candidatos = lookup.get(val, [])
+            for ib in candidatos:
+                if ib not in b_match and ia not in a_match:
+                    pares.append((ib, ia))
+                    b_match.add(ib)
+                    a_match.add(ia)
+                    # Eliminar ib del lookup para que no se reutilice
+                    lookup[val].remove(ib)
+                    break
+        return pares
+
+    # ── Cruce 1: banco DÉBITO ↔ aux CRÉDITO ──────────────────────────────
+    b_deb_sub = df_b[df_b["DEBITO"]  > 0]
+    a_cre_sub = df_a[df_a["credito"] > 0]
+    _match_por_valor_fecha(b_deb_sub, "DEBITO", a_cre_sub, "credito")
 
     # ── Cruce 2: banco CRÉDITO ↔ aux DÉBITO ──────────────────────────────
-    b_cre = df_b[(df_b["CREDITO"] > 0) & (~df_b["_idx_b"].isin(b_match))][["_idx_b", "CREDITO"]].rename(columns={"CREDITO": "_val"})
-    a_deb = df_a[(df_a["debito"]  > 0) & (~df_a["_idx_a"].isin(a_match))][["_idx_a", "debito"]].rename(columns={"debito":  "_val"})
-
-    merged2 = pd.merge(b_cre, a_deb, on="_val", how="inner")
-    seen_b, seen_a = set(), set()
-    for _, row in merged2.iterrows():
-        ib, ia = int(row["_idx_b"]), int(row["_idx_a"])
-        if ib not in seen_b and ia not in seen_a and ib not in b_match and ia not in a_match:
-            b_match.add(ib); a_match.add(ia)
-            seen_b.add(ib);  seen_a.add(ia)
+    b_cre_sub = df_b[(df_b["CREDITO"] > 0) & (~df_b["_idx_b"].isin(b_match))]
+    a_deb_sub = df_a[(df_a["debito"]  > 0) & (~df_a["_idx_a"].isin(a_match))]
+    _match_por_valor_fecha(b_cre_sub, "CREDITO", a_deb_sub, "debito")
 
     # ── Reclasificaciones auxiliar (no cruzado: deb↔cre mismo valor) ─────
     a_no_match = df_a[~df_a["_idx_a"].isin(a_match)].copy()
