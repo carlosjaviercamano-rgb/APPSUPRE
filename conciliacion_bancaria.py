@@ -277,15 +277,16 @@ def conciliar(df_banco, df_aux):
     def _match_por_valor_fecha(df_banco_sub, col_banco, df_aux_sub, col_aux):
         """
         Para cada movimiento del auxiliar busca en el banco el match de
-        valor exacto con fecha más reciente (desempate por fecha DESC).
+        valor exacto. Desempate cuando hay varios con el mismo valor:
+        se elige el de fecha más cercana a la fecha del auxiliar.
         """
         from collections import defaultdict
 
-        # Forzar copia y conversión de FECHA a datetime para poder ordenar
+        # Convertir fechas del banco a datetime
         b_sub = df_banco_sub.copy()
         b_sub["FECHA"] = pd.to_datetime(b_sub["FECHA"], errors="coerce")
 
-        # Construir lookup: valor → lista de (fecha, idx_b) ordenados por fecha DESC
+        # Construir lookup: valor → lista de (fecha, idx_b)
         lookup = defaultdict(list)
         for _, rb in b_sub.iterrows():
             ib  = int(rb["_idx_b"])
@@ -293,30 +294,49 @@ def conciliar(df_banco, df_aux):
             fec = rb["FECHA"]
             lookup[val].append((fec, ib))
 
-        # Ordenar cada lista por fecha DESC
-        for val in lookup:
-            lookup[val].sort(key=lambda x: x[0] if pd.notna(x[0]) else pd.Timestamp.min,
-                             reverse=True)
+        # Convertir fechas del auxiliar a datetime
+        a_sub = df_aux_sub.copy()
+        if "fecha" in a_sub.columns:
+            a_sub["fecha"] = pd.to_datetime(a_sub["fecha"], errors="coerce")
 
         pares = []
-        for _, ra in df_aux_sub.iterrows():
+        for _, ra in a_sub.iterrows():
             ia  = int(ra["_idx_a"])
             val = round(float(ra[col_aux]), 2)
             candidatos = lookup.get(val, [])
-            for i, (fec, ib) in enumerate(candidatos):
-                if ib not in b_match and ia not in a_match:
-                    pares.append((ib, ia))
-                    b_match.add(ib)
-                    a_match.add(ia)
-                    candidatos.pop(i)  # eliminar para no reutilizar
-                    break
-        return pares
+            if not candidatos:
+                continue
 
-    # ── DEBUG: mostrar fechas del banco antes del cruce ─────────────────
-    import streamlit as st
-    st.warning("🔍 DEBUG fechas banco (primeras 10 filas):")
-    st.dataframe(df_b[["FECHA","DEBITO","CREDITO","CONCEPTO"]].head(10))
-    st.caption(f"Tipo FECHA: {df_b['FECHA'].dtype}")
+            # Fecha del auxiliar para calcular cercanía
+            fec_aux = ra.get("fecha") if "fecha" in ra.index else None
+            try:
+                fec_aux = pd.to_datetime(fec_aux, errors="coerce")
+            except Exception:
+                fec_aux = None
+
+            # Filtrar candidatos disponibles
+            disponibles = [(fec, ib) for (fec, ib) in candidatos
+                           if ib not in b_match and ia not in a_match]
+            if not disponibles:
+                continue
+
+            # Elegir el candidato con fecha más cercana al auxiliar
+            # Si no hay fecha auxiliar válida, tomar el primero disponible
+            if fec_aux is not None and pd.notna(fec_aux):
+                mejor = min(disponibles,
+                            key=lambda x: abs((pd.to_datetime(x[0]) - fec_aux).days)
+                            if x[0] is not None and pd.notna(x[0]) else 9999)
+            else:
+                mejor = disponibles[0]
+
+            fec_ganadora, ib_ganador = mejor
+            pares.append((ib_ganador, ia))
+            b_match.add(ib_ganador)
+            a_match.add(ia)
+            # Eliminar del lookup para no reutilizar
+            lookup[val].remove((fec_ganadora, ib_ganador))
+
+        return pares
 
     # ── Cruce 1: banco DÉBITO ↔ aux CRÉDITO ──────────────────────────────
     b_deb_sub = df_b[df_b["DEBITO"]  > 0]
