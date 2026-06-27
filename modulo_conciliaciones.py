@@ -326,7 +326,6 @@ def _render_conciliar_bancaria():
 
     st.markdown(f"### {empresa} | {cuenta_nom} | {mes}")
 
-    # ── Fila de botones ───────────────────────────────────────────────────
     col_f, col_c, col_l = st.columns([2, 2, 1])
 
     with col_f:
@@ -356,34 +355,28 @@ def _render_conciliar_bancaria():
                 st.session_state.pop(k, None)
             st.rerun()
 
-    # ── PASO 1: FILTRAR ───────────────────────────────────────────────────
     if btn_filtrar:
         with st.spinner("Filtrando datos... por favor espera."):
             try:
                 for a in archivos_aux:
                     a.seek(0)
                 extracto.seek(0)
-
                 df_banco, df_aux, df_aux_orig, resumen_filtro = filtrar_datos(
                     archivos_aux, extracto, empresa, cod_cuenta, mes_idx
                 )
-
                 st.session_state["banc_df_banco"]       = df_banco
                 st.session_state["banc_df_aux"]         = df_aux
                 st.session_state["banc_df_aux_orig"]    = df_aux_orig
                 st.session_state["banc_resumen_filtro"] = resumen_filtro
                 st.session_state["banc_filtro_ok"]      = True
-                # Limpiar conciliación previa si la había
                 st.session_state.pop("banc_resumen", None)
                 st.session_state.pop("banc_excel",   None)
                 st.rerun()
-
             except Exception as e:
                 st.error(f"❌ Error al filtrar: {str(e)}")
                 import traceback
                 st.code(traceback.format_exc())
 
-    # ── Mostrar resumen del filtro ────────────────────────────────────────
     resumen_filtro = st.session_state.get("banc_resumen_filtro")
     if resumen_filtro:
         st.success("✅ Datos filtrados correctamente. Ya puedes conciliar.")
@@ -396,16 +389,13 @@ def _render_conciliar_bancaria():
         c5.metric("Débito aux",         f"${resumen_filtro['total_deb_aux']:,.2f}")
         c6.metric("Crédito aux",        f"${resumen_filtro['total_cre_aux']:,.2f}")
 
-    # ── PASO 2: CONCILIAR ─────────────────────────────────────────────────
     if btn_conciliar:
-        df_banco     = st.session_state.get("banc_df_banco")
-        df_aux       = st.session_state.get("banc_df_aux")
-        df_aux_orig  = st.session_state.get("banc_df_aux_orig")
-
+        df_banco    = st.session_state.get("banc_df_banco")
+        df_aux      = st.session_state.get("banc_df_aux")
+        df_aux_orig = st.session_state.get("banc_df_aux_orig")
         if df_banco is None or df_aux is None:
             st.error("❌ No hay datos filtrados. Primero haz clic en Filtrar datos.")
             return
-
         with st.spinner("Conciliando... esto toma solo unos segundos."):
             try:
                 partidas, df_b, df_a, resumen = conciliar(df_banco, df_aux)
@@ -417,13 +407,11 @@ def _render_conciliar_bancaria():
                 st.session_state["banc_excel"]   = excel_bytes
                 st.success("✅ Conciliación completada.")
                 st.rerun()
-
             except Exception as e:
                 st.error(f"❌ Error al conciliar: {str(e)}")
                 import traceback
                 st.code(traceback.format_exc())
 
-    # ── Mostrar resultado de conciliación ─────────────────────────────────
     resumen = st.session_state.get("banc_resumen")
     if resumen is not None:
         st.markdown("---")
@@ -457,7 +445,7 @@ def _render_conciliar_bancaria():
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# CUENTAS PUENTES — funciones sin cambios
+# SUBMÓDULO 3: CUENTAS PUENTES / TRANSITORIAS
 # ══════════════════════════════════════════════════════════════════════════
 
 def _render_conciliar_puentes():
@@ -469,7 +457,8 @@ def _render_conciliar_puentes():
     st.markdown("### 🔍 Conciliación Cuentas Puentes / Transitorias")
     st.caption(f"📂 {len(archivos)} auxiliar(es) cargado(s). Ingresa la cuenta y filtra solo esos datos.")
 
-    col_inp, col_btn, col_lim = st.columns([3, 1, 1])
+    col_inp, col_f, col_c, col_lim = st.columns([3, 1, 1, 1])
+
     with col_inp:
         codigo_cuenta = st.text_input(
             "Código de cuenta a conciliar (codigocuenta):",
@@ -477,39 +466,102 @@ def _render_conciliar_puentes():
             placeholder="Ej: 141299011",
             key="input_cuenta_puentes"
         )
-    with col_btn:
+
+    filtro_ok = st.session_state.get("puentes_filtro_ok", False)
+
+    with col_f:
         st.markdown("<br>", unsafe_allow_html=True)
-        ejecutar = st.button("🔍 Filtrar y Conciliar", type="primary",
-                             use_container_width=True, key="btn_conciliar_puentes")
+        btn_filtrar = st.button(
+            "⚙️ Filtrar",
+            type="primary",
+            use_container_width=True,
+            key="btn_filtrar_puentes",
+            disabled=filtro_ok
+        )
+
+    with col_c:
+        st.markdown("<br>", unsafe_allow_html=True)
+        btn_conciliar = st.button(
+            "🔍 Conciliar",
+            type="primary",
+            use_container_width=True,
+            key="btn_conciliar_puentes",
+            disabled=not filtro_ok
+        )
+
     with col_lim:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔄 Limpiar", use_container_width=True, key="limpiar_conciliar_puentes"):
-            st.session_state["puentes_df_filtrado"]       = None
-            st.session_state["puentes_cuenta"]            = ""
-            st.session_state["puentes_resultado_bytes"]   = None
+            for k in ["puentes_df_filtrado", "puentes_cuenta", "puentes_resultado_bytes",
+                      "puentes_filtro_ok", "puentes_resumen_filtro",
+                      "puentes_resultado", "puentes_resultado_df"]:
+                st.session_state.pop(k, None)
             st.rerun()
 
-    if ejecutar and codigo_cuenta.strip():
-        st.session_state["puentes_cuenta"] = codigo_cuenta.strip()
-        with st.spinner("Leyendo auxiliares y filtrando por cuenta..."):
+    # ── PASO 1: FILTRAR ───────────────────────────────────────────────────
+    if btn_filtrar:
+        if not codigo_cuenta.strip():
+            st.warning("⚠️ Ingresa un código de cuenta.")
+        else:
+            st.session_state["puentes_cuenta"] = codigo_cuenta.strip()
+            with st.spinner("Leyendo auxiliares y filtrando por cuenta..."):
+                try:
+                    df_filtrado = _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta.strip())
+                    if df_filtrado is None or df_filtrado.empty:
+                        st.warning(f"⚠️ No se encontraron registros para la cuenta **{codigo_cuenta}**.")
+                    else:
+                        resumen_filtro = {
+                            "n_registros": len(df_filtrado),
+                            "cuenta":      codigo_cuenta.strip(),
+                            "suma_total":  round(
+                                pd.to_numeric(df_filtrado["valor"], errors="coerce").fillna(0).sum(), 2
+                            ) if "valor" in df_filtrado.columns else 0,
+                        }
+                        st.session_state["puentes_df_filtrado"]   = df_filtrado
+                        st.session_state["puentes_resumen_filtro"] = resumen_filtro
+                        st.session_state["puentes_filtro_ok"]      = True
+                        # Limpiar conciliación previa
+                        st.session_state.pop("puentes_resultado",    None)
+                        st.session_state.pop("puentes_resultado_df", None)
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+    # ── Mostrar resumen del filtro ────────────────────────────────────────
+    resumen_filtro = st.session_state.get("puentes_resumen_filtro")
+    if resumen_filtro:
+        st.success("✅ Datos filtrados correctamente. Ya puedes conciliar.")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Cuenta",       resumen_filtro["cuenta"])
+        c2.metric("Registros",    f"{resumen_filtro['n_registros']:,}")
+        c3.metric("Suma total",   f"${resumen_filtro['suma_total']:,.2f}")
+
+    # ── PASO 2: CONCILIAR ─────────────────────────────────────────────────
+    if btn_conciliar:
+        df_filtrado   = st.session_state.get("puentes_df_filtrado")
+        cuenta_actual = st.session_state.get("puentes_cuenta", "")
+        if df_filtrado is None:
+            st.error("❌ No hay datos filtrados. Primero haz clic en Filtrar.")
+            return
+        with st.spinner("Conciliando... esto toma solo unos segundos."):
             try:
-                df_filtrado = _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta.strip())
-                if df_filtrado is None or df_filtrado.empty:
-                    st.warning(f"⚠️ No se encontraron registros para la cuenta **{codigo_cuenta}**.")
-                else:
-                    st.session_state["puentes_df_filtrado"] = df_filtrado
-                    st.success(f"✅ {len(df_filtrado):,} registros encontrados para cuenta {codigo_cuenta}.")
+                df_resultado = _ejecutar_conciliacion_puentes(df_filtrado, cuenta_actual)
+                st.session_state["puentes_resultado_df"] = df_resultado
+                st.session_state["puentes_resultado"]    = True
+                st.rerun()
             except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
+                st.error(f"❌ Error al conciliar: {str(e)}")
                 import traceback
                 st.code(traceback.format_exc())
-    elif ejecutar:
-        st.warning("⚠️ Ingresa un código de cuenta.")
 
-    df_filtrado = st.session_state.get("puentes_df_filtrado")
-    if df_filtrado is not None:
+    # ── Mostrar resultado ─────────────────────────────────────────────────
+    if st.session_state.get("puentes_resultado"):
+        df_resultado  = st.session_state.get("puentes_resultado_df")
         cuenta_actual = st.session_state.get("puentes_cuenta", "")
-        _ejecutar_conciliacion_puentes(df_filtrado, cuenta_actual)
+        if df_resultado is not None:
+            _mostrar_resultado_puentes(df_resultado, cuenta_actual)
 
 
 def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta):
@@ -537,7 +589,9 @@ def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta):
 
 
 def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
+    """Aplica la lógica de conciliación y retorna el DataFrame resultado."""
     from itertools import combinations
+
     col_valor = "valor"
     col_iden  = "identificacion"
     col_id    = "id"
@@ -549,22 +603,17 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
     total_movimientos = len(df)
     suma_total        = round(df[col_valor].sum(), 2)
 
-    st.markdown(f"**Cuenta:** `{codigo_cuenta}` | **Movimientos:** {total_movimientos:,} | **Suma total:** ${suma_total:,.2f}")
-
-    if abs(suma_total) < 0.01:
-        st.success("✅ CUENTA CONCILIADA — La suma de todos los movimientos es 0.")
-        df["concilia_con_id"] = "CONCILIADA"
-        _mostrar_resultado(df, codigo_cuenta, total_movimientos, 0, total_movimientos, 0)
-        return
-
-    st.warning(f"⚠️ Suma ≠ 0 (${suma_total:,.2f}). Aplicando lógica de conciliación...")
-
     df["concilia_con_id"] = ""
 
+    if abs(suma_total) < 0.01:
+        df["concilia_con_id"] = "CONCILIADA"
+        return df
+
+    # PASO 1A: Pares exactos dentro de la misma cédula → SIN NOVEDAD
     def _buscar_pares_internos(grupo):
         pares = set()
-        pos = grupo[grupo[col_valor] > 0]
-        neg = grupo[grupo[col_valor] < 0]
+        pos    = grupo[grupo[col_valor] > 0]
+        neg    = grupo[grupo[col_valor] < 0]
         usados = set()
         for ip, rp in pos.iterrows():
             if ip in pares: continue
@@ -583,16 +632,18 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
         indices_sn_interno.update(pares)
     df.loc[list(indices_sn_interno), "concilia_con_id"] = "SIN NOVEDAD"
 
-    df_resto   = df[df["concilia_con_id"] == ""]
+    # PASO 1B: Saldo neto = 0 por cédula → SIN NOVEDAD
+    df_resto     = df[df["concilia_con_id"] == ""]
     saldos_resto = df_resto[df_resto[col_iden] != ""].groupby(col_iden)[col_valor].sum().round(2)
 
     ced_sin_nov2 = set(saldos_resto[abs(saldos_resto) < 0.01].index)
     mask_sn2 = (df[col_iden].isin(ced_sin_nov2)) & (df["concilia_con_id"] == "")
     df.loc[mask_sn2, "concilia_con_id"] = "SIN NOVEDAD"
 
-    ced_con_sal = {ced: round(sal,2) for ced,sal in saldos_resto.items()
+    ced_con_sal = {ced: round(sal, 2) for ced, sal in saldos_resto.items()
                    if abs(sal) >= 0.01 and ced not in ced_sin_nov2}
 
+    # PASO 2: Grupos de cédulas cuyo saldo neto sume 0 → CONCILIA CON ID
     saldos_pend  = dict(ced_con_sal)
     concilia_map = {}
 
@@ -600,15 +651,15 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
     while encontrado and len(saldos_pend) >= 2:
         encontrado = False
         items = list(saldos_pend.items())
-        for r in range(2, min(len(items)+1, 6)):
+        for r in range(2, min(len(items) + 1, 6)):
             if encontrado: break
             for combo in combinations(items, r):
-                ceds = [c for c,_ in combo]
-                vals = [v for _,v in combo]
+                ceds = [c for c, _ in combo]
+                vals = [v for _, v in combo]
                 if abs(round(sum(vals), 2)) < 0.01:
                     for ced in ceds:
                         saldo_ced = saldos_pend[ced]
-                        opuestas = [c for c in ceds if c != ced and saldos_pend[c] * saldo_ced < 0]
+                        opuestas  = [c for c in ceds if c != ced and saldos_pend[c] * saldo_ced < 0]
                         if not opuestas:
                             opuestas = [c for c in ceds if c != ced]
                         ced_op   = opuestas[0]
@@ -618,8 +669,10 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
                         if not mov_exact.empty:
                             id_ref = int(mov_exact[col_id].iloc[0])
                         else:
-                            mov_s = filas_op[filas_op[col_valor] * saldo_ced < 0]
-                            id_ref = int(mov_s[col_id].iloc[0]) if not mov_s.empty else int(filas_op[col_id].iloc[0]) if not filas_op.empty else ced_op
+                            mov_s  = filas_op[filas_op[col_valor] * saldo_ced < 0]
+                            id_ref = int(mov_s[col_id].iloc[0]) if not mov_s.empty \
+                                     else int(filas_op[col_id].iloc[0]) if not filas_op.empty \
+                                     else ced_op
                         concilia_map[ced] = (f"Concilia con ID {id_ref}", saldo_ced)
                     for ced in ceds:
                         del saldos_pend[ced]
@@ -634,29 +687,38 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
         else:
             df.loc[filas_ced.index, "concilia_con_id"] = label
 
+    # PASO 3: Resto → REVISAR
     df.loc[df["concilia_con_id"] == "", "concilia_con_id"] = "REVISAR"
+
+    return df
+
+
+def _mostrar_resultado_puentes(df, codigo_cuenta):
+    col_valor = "valor"
+
+    total_movimientos = len(df)
+    suma_total = round(pd.to_numeric(df[col_valor], errors="coerce").fillna(0).sum(), 2) \
+                 if col_valor in df.columns else 0
 
     n_sin_nov  = (df["concilia_con_id"] == "SIN NOVEDAD").sum()
     n_revisar  = (df["concilia_con_id"] == "REVISAR").sum()
     n_concilia = total_movimientos - n_sin_nov - n_revisar
-    val_sin_nov  = round(df[df["concilia_con_id"] == "SIN NOVEDAD"][col_valor].sum(), 2)
-    val_concilia = round(df[df["concilia_con_id"].str.startswith("Concilia")][col_valor].sum(), 2)
-    val_revisar  = round(df[df["concilia_con_id"] == "REVISAR"][col_valor].sum(), 2)
 
-    _mostrar_resultado(df, codigo_cuenta, total_movimientos, n_sin_nov, n_concilia, n_revisar,
-                       val_sin_nov, val_concilia, val_revisar, suma_total)
+    val_sin_nov  = round(df[df["concilia_con_id"] == "SIN NOVEDAD"][col_valor].sum(), 2) \
+                   if col_valor in df.columns else 0
+    val_concilia = round(df[df["concilia_con_id"].str.startswith("Concilia", na=False)][col_valor].sum(), 2) \
+                   if col_valor in df.columns else 0
+    val_revisar  = round(df[df["concilia_con_id"] == "REVISAR"][col_valor].sum(), 2) \
+                   if col_valor in df.columns else 0
 
-
-def _mostrar_resultado(df, codigo_cuenta, total, n_sn, n_conc, n_rev,
-                       val_sn=0, val_conc=0, val_rev=0, suma_total=0):
     st.markdown("---")
     st.markdown("#### 📊 Resumen de Conciliación")
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total movimientos",           f"{total:,}")
-    c2.metric("✅ Sin novedad",              f"{n_sn:,}",   f"${val_sn:,.2f}")
-    c3.metric("🔗 Concilia con otra cédula", f"{n_conc:,}", f"${val_conc:,.2f}")
-    c4.metric("⚠️ Por revisar",              f"{n_rev:,}",  f"${val_rev:,.2f} de ${suma_total:,.2f}")
+    c1.metric("Total movimientos",           f"{total_movimientos:,}")
+    c2.metric("✅ Sin novedad",              f"{n_sin_nov:,}",   f"${val_sin_nov:,.2f}")
+    c3.metric("🔗 Concilia con otra cédula", f"{n_concilia:,}",  f"${val_concilia:,.2f}")
+    c4.metric("⚠️ Por revisar",              f"{n_revisar:,}",   f"${val_revisar:,.2f} de ${suma_total:,.2f}")
 
     st.markdown("#### 📋 Tabla de conciliación")
     st.dataframe(df, use_container_width=True, height=400)
