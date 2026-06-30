@@ -460,14 +460,24 @@ def _mostrar_reemplazo_cedulas():
     if "cedulas_nuevas_set" not in st.session_state:
         st.session_state["cedulas_nuevas_set"] = set()
 
+    # Cédulas convenio que deben mostrarse individualmente (no agrupar)
+    CEDULAS_CONVENIO = {"11237"}
+
+    # Agrupar normalmente excepto las de convenio → una entrada por movimiento
     cedulas_agrupadas = defaultdict(list)
     for item in no_encontradas:
-        cedulas_agrupadas[item["cedula"]].append(item)
+        if item["cedula"] in CEDULAS_CONVENIO:
+            # Clave única por índice para que no se agrupen
+            cedulas_agrupadas[f"{item['cedula']}__idx__{item['idx']}"].append(item)
+        else:
+            cedulas_agrupadas[item["cedula"]].append(item)
 
     reemplazos = {}
     df_banco = st.session_state.df_area_banco
 
-    for i, (cedula, items) in enumerate(cedulas_agrupadas.items()):
+    for i, (cedula_key, items) in enumerate(cedulas_agrupadas.items()):
+        # Recuperar cédula real (sin el sufijo __idx__ para convenios)
+        cedula = cedula_key.split("__idx__")[0]
         n_pagos     = len(items)
         valores     = []
         for item in items:
