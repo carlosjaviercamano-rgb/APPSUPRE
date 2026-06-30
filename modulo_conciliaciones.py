@@ -447,10 +447,42 @@ def _render_conciliar_bancaria():
                        f"Reclasif: {resumen['n_reclasif']}")
 
         if st.session_state.get("banc_excel"):
+            from datetime import date, timedelta
+            ayer = date.today() - timedelta(days=1)
+            fecha_str = ayer.strftime("%d_%m_%Y")
+            # Limpiar nombre de cuenta para usarlo en el archivo
+            cuenta_limpia = cuenta_nom.replace("/", "-").replace("\\", "-").strip()
+            nombre_archivo = f"CONCILIACION_{cuenta_limpia}_{fecha_str}.xlsx"
+
+            # Guardar automáticamente en la ruta configurada según banco
+            cfg = st.session_state.get("config", {})
+            nombre_lower = cuenta_nom.lower()
+            if "bancolombia" in nombre_lower:
+                ruta_auto = cfg.get("ruta_conc_bancolombia", "")
+            elif "davivienda" in nombre_lower:
+                ruta_auto = cfg.get("ruta_conc_davivienda", "")
+            elif "occidente" in nombre_lower:
+                ruta_auto = cfg.get("ruta_conc_occidente", "")
+            elif "bogota" in nombre_lower or "bogotá" in nombre_lower:
+                ruta_auto = cfg.get("ruta_conc_bogota", "")
+            else:
+                ruta_auto = ""
+
+            if ruta_auto:
+                try:
+                    import os
+                    os.makedirs(ruta_auto, exist_ok=True)
+                    ruta_completa = os.path.join(ruta_auto, nombre_archivo)
+                    with open(ruta_completa, "wb") as f:
+                        f.write(st.session_state["banc_excel"])
+                    st.success(f"💾 Guardado automáticamente en: {ruta_completa}")
+                except Exception as e:
+                    st.warning(f"⚠️ No se pudo guardar automáticamente: {str(e)}")
+
             st.download_button(
                 label="⬇️  Descargar Excel (CONCILIACION + BANCO + AUXILIAR)",
                 data=st.session_state["banc_excel"],
-                file_name=f"CONCILIACION_{empresa}_{mes}.xlsx",
+                file_name=nombre_archivo,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_bancaria"
             )
@@ -740,10 +772,29 @@ def _mostrar_resultado_puentes(df, codigo_cuenta):
     buf.seek(0)
     st.session_state["puentes_resultado_bytes"] = buf.getvalue()
 
+    from datetime import date, timedelta
+    ayer = date.today() - timedelta(days=1)
+    fecha_str = ayer.strftime("%d_%m_%Y")
+    nombre_archivo_puentes = f"CONCILIACION_{codigo_cuenta}_{fecha_str}.xlsx"
+
+    # Guardar automáticamente en ruta configurada
+    cfg = st.session_state.get("config", {})
+    ruta_auto_puentes = cfg.get("ruta_conc_puentes", "")
+    if ruta_auto_puentes:
+        try:
+            import os
+            os.makedirs(ruta_auto_puentes, exist_ok=True)
+            ruta_completa_puentes = os.path.join(ruta_auto_puentes, nombre_archivo_puentes)
+            with open(ruta_completa_puentes, "wb") as f:
+                f.write(st.session_state["puentes_resultado_bytes"])
+            st.success(f"💾 Guardado automáticamente en: {ruta_completa_puentes}")
+        except Exception as e:
+            st.warning(f"⚠️ No se pudo guardar automáticamente: {str(e)}")
+
     st.download_button(
         label=f"⬇️  Descargar resultado conciliación cuenta {codigo_cuenta} ({len(df):,} registros)",
         data=st.session_state["puentes_resultado_bytes"],
-        file_name=f"CONCILIACION_{codigo_cuenta}.xlsx",
+        file_name=nombre_archivo_puentes,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key="dl_resultado_puentes"
     )

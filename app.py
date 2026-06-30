@@ -213,13 +213,18 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 
 def cargar_config():
     default = {
-        "libro_nombre": "LIBRO BANCOS 2025",
-        "sharepoint_url": "",
-        "ruta_movicap": r"C:\Users\ASUS\Desktop\BANCOS\1.MOVICAP\\",
-        "ruta_suprecartera": r"C:\Users\ASUS\Desktop\BANCOS\2.SUPRECARTERA\\",
-        "ruta_suprecredito": r"C:\Users\ASUS\Desktop\BANCOS\3.SUPRECREDITO\\",
-        "ruta_tucredito": r"C:\Users\ASUS\Desktop\BANCOS\4.TUCREDITO\\",
-        "ruta_compensaciones": r"C:\Users\ASUS\Desktop\BANCOS\COMPENSACION 2026\\"
+        "libro_nombre":          "LIBRO BANCOS 2025",
+        "sharepoint_url":        "",
+        "ruta_movicap":          r"C:\Users\ASUS\Desktop\BANCOS\1.MOVICAP\\",
+        "ruta_suprecartera":     r"C:\Users\ASUS\Desktop\BANCOS\2.SUPRECARTERA\\",
+        "ruta_suprecredito":     r"C:\Users\ASUS\Desktop\BANCOS\3.SUPRECREDITO\\",
+        "ruta_tucredito":        r"C:\Users\ASUS\Desktop\BANCOS\4.TUCREDITO\\",
+        "ruta_compensaciones":   r"C:\Users\ASUS\Desktop\BANCOS\COMPENSACION 2026\\",
+        "ruta_conc_bancolombia": r"C:\Users\ASUS\Desktop\BANCOS\MOVIMIENTOS BANCARIOS\BANCOLOMBIA\\",
+        "ruta_conc_davivienda":  r"C:\Users\ASUS\Desktop\BANCOS\MOVIMIENTOS BANCARIOS\DAVIVIENDA\\",
+        "ruta_conc_occidente":   r"C:\Users\ASUS\Desktop\BANCOS\MOVIMIENTOS BANCARIOS\OCCIDENTE\\",
+        "ruta_conc_bogota":      r"C:\Users\ASUS\Desktop\BANCOS\MOVIMIENTOS BANCARIOS\BOGOTA\\",
+        "ruta_conc_puentes":     r"C:\Users\ASUS\Desktop\BANCOS\MOVIMIENTOS BANCARIOS\PUENTES\\",
     }
     if os.path.exists(CONFIG_PATH):
         try:
@@ -316,10 +321,17 @@ def modulo_configuracion():
         st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('<div class="config-card"><h4>📁 Rutas de Planos</h4>', unsafe_allow_html=True)
-        cfg["ruta_movicap"] = st.text_input("Movicap", value=cfg["ruta_movicap"])
-        cfg["ruta_suprecartera"] = st.text_input("Suprecartera", value=cfg["ruta_suprecartera"])
-        cfg["ruta_suprecredito"] = st.text_input("Suprecredito", value=cfg["ruta_suprecredito"])
-        cfg["ruta_tucredito"] = st.text_input("TuCredito", value=cfg["ruta_tucredito"])
+        cfg["ruta_movicap"]        = st.text_input("Movicap",      value=cfg["ruta_movicap"])
+        cfg["ruta_suprecartera"]   = st.text_input("Suprecartera", value=cfg["ruta_suprecartera"])
+        cfg["ruta_suprecredito"]   = st.text_input("Suprecredito", value=cfg["ruta_suprecredito"])
+        cfg["ruta_tucredito"]      = st.text_input("TuCredito",    value=cfg["ruta_tucredito"])
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="config-card"><h4>📁 Rutas Conciliación Bancaria</h4>', unsafe_allow_html=True)
+        cfg["ruta_conc_bancolombia"] = st.text_input("Bancolombia", value=cfg["ruta_conc_bancolombia"])
+        cfg["ruta_conc_davivienda"]  = st.text_input("Davivienda",  value=cfg["ruta_conc_davivienda"])
+        cfg["ruta_conc_occidente"]   = st.text_input("Occidente",   value=cfg["ruta_conc_occidente"])
+        cfg["ruta_conc_bogota"]      = st.text_input("Bogotá",      value=cfg["ruta_conc_bogota"])
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col2:
@@ -330,14 +342,24 @@ def modulo_configuracion():
         )
         st.markdown('</div>', unsafe_allow_html=True)
 
+        st.markdown('<div class="config-card"><h4>📁 Ruta Cuentas Puentes / Transitorias</h4>', unsafe_allow_html=True)
+        cfg["ruta_conc_puentes"] = st.text_input(
+            "Carpeta puentes",
+            value=cfg["ruta_conc_puentes"]
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+
         st.markdown('<div class="config-card"><h4>ℹ️ Estado del sistema</h4>', unsafe_allow_html=True)
         libro_ok = bool(cfg.get("libro_nombre"))
         url_ok   = bool(cfg.get("sharepoint_url"))
         st.markdown(f"{'✅' if libro_ok else '⚠️'} Nombre del libro: {'configurado' if libro_ok else 'pendiente'}")
         st.markdown(f"{'✅' if url_ok else '⚠️'} URL SharePoint: {'configurada' if url_ok else 'pendiente'}")
-        rutas = ["ruta_movicap","ruta_suprecartera","ruta_suprecredito","ruta_tucredito","ruta_compensaciones"]
-        rutas_ok = all(cfg.get(r) for r in rutas)
-        st.markdown(f"{'✅' if rutas_ok else '⚠️'} Rutas de salida: {'todas configuradas' if rutas_ok else 'revisar rutas'}")
+        rutas_planos = ["ruta_movicap","ruta_suprecartera","ruta_suprecredito","ruta_tucredito","ruta_compensaciones"]
+        rutas_conc   = ["ruta_conc_bancolombia","ruta_conc_davivienda","ruta_conc_occidente","ruta_conc_bogota","ruta_conc_puentes"]
+        rutas_ok  = all(cfg.get(r) for r in rutas_planos)
+        conc_ok   = all(cfg.get(r) for r in rutas_conc)
+        st.markdown(f"{'✅' if rutas_ok  else '⚠️'} Rutas de planos: {'configuradas' if rutas_ok else 'revisar'}")
+        st.markdown(f"{'✅' if conc_ok   else '⚠️'} Rutas de conciliación: {'configuradas' if conc_ok else 'revisar'}")
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -366,7 +388,6 @@ def modulo_proximamente(nombre, icono):
 
 # ─── MÓDULO: APLICACIÓN Y COMPENSACIÓN ────────────────────────────────────
 def modulo_pagos():
-    # Se importa desde su propio archivo
     from modulo_pagos import render
     render()
 
