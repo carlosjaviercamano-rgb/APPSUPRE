@@ -290,6 +290,16 @@ with st.sidebar:
         st.session_state.modulo = "config"
         st.rerun()
 
+    st.markdown("<br>" * 2, unsafe_allow_html=True)
+    st.markdown("""
+        <div style="background:#0f1420;border:1px solid #2d3548;border-radius:8px;
+                    padding:0.5rem 0.8rem;text-align:center;">
+            <div style="font-size:0.75rem;color:#64748b;">
+                ccamano & claude.ai</div>
+            <div style="font-size:0.65rem;color:#374151;margin-top:0.1rem;">2026</div>
+        </div>
+    """, unsafe_allow_html=True)
+
 # ─── MÓDULO: CONFIGURACIÓN ─────────────────────────────────────────────────
 def modulo_configuracion():
     st.markdown("""
