@@ -257,7 +257,7 @@ def render_bancaria():
 
         st.markdown("---")
         st.markdown("#### 📂 Auxiliares")
-        st.caption("Sube hasta 15 auxiliares. Se filtrarán al hacer clic en Filtrar datos.")
+        st.caption("Sube hasta 15 auxiliares (opcional). Si no se encuentra el auxiliar, igual podrás conciliar y todo el extracto quedará como no registrado.")
 
         _, col_lim_aux = st.columns([3, 1])
         with col_lim_aux:
@@ -297,7 +297,7 @@ def render_bancaria():
         elif st.session_state.get("banc_extracto"):
             st.success(f"✅ {st.session_state['banc_extracto'].name}")
 
-        if cargados and st.session_state.get("banc_extracto"):
+        if st.session_state.get("banc_extracto"):
             st.info("👉 Ve a la pestaña **2. Conciliar** para filtrar y conciliar.")
 
     with tab2:
@@ -317,9 +317,10 @@ def _render_conciliar_bancaria():
     cod_cuenta   = next((c[1] for c in cuentas_emp if c[0] == cuenta_nom), None)
     mes_idx      = MESES_CB.index(mes) if mes in MESES_CB else 0
 
-    if not archivos_aux:
-        st.warning("⚠️ Primero carga los auxiliares en la pestaña **1. Cargar Archivos**.")
-        return
+    # IMPORTANTE: ya NO se exige tener auxiliares cargados como requisito
+    # bloqueante. Si no hay auxiliar (o no se encuentra para esa
+    # empresa/cuenta/mes), igual se puede conciliar: todo el extracto
+    # quedará marcado como "no registrado en el auxiliar".
     if not extracto:
         st.warning("⚠️ Primero carga el extracto bancario en la pestaña **1. Cargar Archivos**.")
         return
@@ -361,6 +362,8 @@ def _render_conciliar_bancaria():
                 for a in archivos_aux:
                     a.seek(0)
                 extracto.seek(0)
+                # filtrar_datos ya retorna df_aux vacío (sin lanzar error)
+                # cuando no encuentra auxiliar para empresa/cuenta/mes.
                 df_banco, df_aux, df_aux_orig, resumen_filtro = filtrar_datos(
                     archivos_aux, extracto, empresa, cod_cuenta, mes_idx
                 )
@@ -379,7 +382,16 @@ def _render_conciliar_bancaria():
 
     resumen_filtro = st.session_state.get("banc_resumen_filtro")
     if resumen_filtro:
-        st.success("✅ Datos filtrados correctamente. Ya puedes conciliar.")
+        if resumen_filtro.get("sin_auxiliar"):
+            st.warning(
+                "⚠️ No se encontraron movimientos en el auxiliar para "
+                f"**{empresa} / cuenta {cod_cuenta} / {mes}**. "
+                "Puedes conciliar igual: todos los movimientos del extracto "
+                "aparecerán como **no registrados en el auxiliar**."
+            )
+        else:
+            st.success("✅ Datos filtrados correctamente. Ya puedes conciliar.")
+
         st.markdown("#### 📋 Resumen de datos filtrados")
         c1, c2, c3, c4, c5, c6 = st.columns(6)
         c1.metric("Movimientos banco",  f"{resumen_filtro['n_banco']:,}")
