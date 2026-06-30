@@ -128,8 +128,8 @@ def _parsear_xls(archivo):
             if tipo == 'v1':
                 fecha    = _parse_fecha_str(str(row[0]))
                 concepto = str(row[2]).strip()
-                deb_str  = str(row[4]).replace('$','').replace(',','').strip()
-                cre_str  = str(row[5]).replace('$','').replace(',','').strip()
+                deb_str  = str(row[4]).replace('$','').strip().replace('.', '').replace(',', '.')
+                cre_str  = str(row[5]).replace('$','').strip().replace('.', '').replace(',', '.')
                 debito   = round(float(deb_str or 0), 2)
                 credito  = round(float(cre_str or 0), 2)
             else:
