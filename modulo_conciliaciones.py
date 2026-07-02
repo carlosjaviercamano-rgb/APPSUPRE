@@ -94,6 +94,10 @@ def _render_volver():
     st.markdown("<br>", unsafe_allow_html=True)
 
 
+MESES_PUENTES = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO",
+                 "JULIO","AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"]
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # SECCIÓN COMPARTIDA: LIBRO AUXILIAR
 # ══════════════════════════════════════════════════════════════════════════
@@ -317,10 +321,6 @@ def _render_conciliar_bancaria():
     cod_cuenta   = next((c[1] for c in cuentas_emp if c[0] == cuenta_nom), None)
     mes_idx      = MESES_CB.index(mes) if mes in MESES_CB else 0
 
-    # IMPORTANTE: ya NO se exige tener auxiliares cargados como requisito
-    # bloqueante. Si no hay auxiliar (o no se encuentra para esa
-    # empresa/cuenta/mes), igual se puede conciliar: todo el extracto
-    # quedará marcado como "no registrado en el auxiliar".
     if not extracto:
         st.warning("⚠️ Primero carga el extracto bancario en la pestaña **1. Cargar Archivos**.")
         return
@@ -362,8 +362,6 @@ def _render_conciliar_bancaria():
                 for a in archivos_aux:
                     a.seek(0)
                 extracto.seek(0)
-                # filtrar_datos ya retorna df_aux vacío (sin lanzar error)
-                # cuando no encuentra auxiliar para empresa/cuenta/mes.
                 df_banco, df_aux, df_aux_orig, resumen_filtro = filtrar_datos(
                     archivos_aux, extracto, empresa, cod_cuenta, mes_idx
                 )
@@ -450,11 +448,9 @@ def _render_conciliar_bancaria():
             from datetime import date, timedelta
             ayer = date.today() - timedelta(days=1)
             fecha_str = ayer.strftime("%d_%m_%Y")
-            # Limpiar nombre de cuenta para usarlo en el archivo
             cuenta_limpia = cuenta_nom.replace("/", "-").replace("\\", "-").strip()
             nombre_archivo = f"CONCILIACION_{cuenta_limpia}_{fecha_str}.xlsx"
 
-            # Guardar automáticamente en la ruta configurada según banco
             cfg = st.session_state.get("config", {})
             nombre_lower = cuenta_nom.lower()
             if "bancolombia" in nombre_lower:
@@ -499,17 +495,27 @@ def _render_conciliar_puentes():
         return
 
     st.markdown("### 🔍 Conciliación Cuentas Puentes / Transitorias")
-    st.caption(f"📂 {len(archivos)} auxiliar(es) cargado(s). Ingresa la cuenta y filtra solo esos datos.")
+    st.caption(f"📂 {len(archivos)} auxiliar(es) cargado(s). Ingresa la cuenta y el mes a conciliar.")
 
-    col_inp, col_f, col_c, col_lim = st.columns([3, 1, 1, 1])
+    # ── Fila: cuenta + mes + botones ─────────────────────────────────────
+    col_inp, col_mes, col_f, col_c, col_lim = st.columns([2, 1, 1, 1, 1])
 
     with col_inp:
         codigo_cuenta = st.text_input(
-            "Código de cuenta a conciliar (codigocuenta):",
+            "Código de cuenta (codigocuenta):",
             value=st.session_state.get("puentes_cuenta", ""),
             placeholder="Ej: 141299011",
             key="input_cuenta_puentes"
         )
+
+    with col_mes:
+        mes_sel = st.selectbox(
+            "Mes:",
+            MESES_PUENTES,
+            index=MESES_PUENTES.index(st.session_state.get("puentes_mes", MESES_PUENTES[0])),
+            key="sel_mes_puentes"
+        )
+        st.session_state["puentes_mes"] = mes_sel
 
     filtro_ok = st.session_state.get("puentes_filtro_ok", False)
 
@@ -536,9 +542,9 @@ def _render_conciliar_puentes():
     with col_lim:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔄 Limpiar", use_container_width=True, key="limpiar_conciliar_puentes"):
-            for k in ["puentes_df_filtrado", "puentes_cuenta", "puentes_resultado_bytes",
-                      "puentes_filtro_ok", "puentes_resumen_filtro",
-                      "puentes_resultado", "puentes_resultado_df"]:
+            for k in ["puentes_df_filtrado", "puentes_cuenta", "puentes_mes",
+                      "puentes_resultado_bytes", "puentes_filtro_ok",
+                      "puentes_resumen_filtro", "puentes_resultado", "puentes_resultado_df"]:
                 st.session_state.pop(k, None)
             st.rerun()
 
@@ -548,23 +554,29 @@ def _render_conciliar_puentes():
             st.warning("⚠️ Ingresa un código de cuenta.")
         else:
             st.session_state["puentes_cuenta"] = codigo_cuenta.strip()
-            with st.spinner("Leyendo auxiliares y filtrando por cuenta..."):
+            mes_num = MESES_PUENTES.index(mes_sel) + 1
+            with st.spinner("Leyendo auxiliares y filtrando por cuenta y mes..."):
                 try:
-                    df_filtrado = _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta.strip())
+                    df_filtrado = _leer_y_filtrar_por_cuenta(
+                        archivos, codigo_cuenta.strip(), mes_num
+                    )
                     if df_filtrado is None or df_filtrado.empty:
-                        st.warning(f"⚠️ No se encontraron registros para la cuenta **{codigo_cuenta}**.")
+                        st.warning(
+                            f"⚠️ No se encontraron registros para la cuenta "
+                            f"**{codigo_cuenta}** en **{mes_sel}**."
+                        )
                     else:
                         resumen_filtro = {
                             "n_registros": len(df_filtrado),
                             "cuenta":      codigo_cuenta.strip(),
+                            "mes":         mes_sel,
                             "suma_total":  round(
                                 pd.to_numeric(df_filtrado["valor"], errors="coerce").fillna(0).sum(), 2
                             ) if "valor" in df_filtrado.columns else 0,
                         }
-                        st.session_state["puentes_df_filtrado"]   = df_filtrado
+                        st.session_state["puentes_df_filtrado"]    = df_filtrado
                         st.session_state["puentes_resumen_filtro"] = resumen_filtro
                         st.session_state["puentes_filtro_ok"]      = True
-                        # Limpiar conciliación previa
                         st.session_state.pop("puentes_resultado",    None)
                         st.session_state.pop("puentes_resultado_df", None)
                         st.rerun()
@@ -577,10 +589,11 @@ def _render_conciliar_puentes():
     resumen_filtro = st.session_state.get("puentes_resumen_filtro")
     if resumen_filtro:
         st.success("✅ Datos filtrados correctamente. Ya puedes conciliar.")
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Cuenta",       resumen_filtro["cuenta"])
-        c2.metric("Registros",    f"{resumen_filtro['n_registros']:,}")
-        c3.metric("Suma total",   f"${resumen_filtro['suma_total']:,.2f}")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Cuenta",     resumen_filtro["cuenta"])
+        c2.metric("Mes",        resumen_filtro.get("mes", ""))
+        c3.metric("Registros",  f"{resumen_filtro['n_registros']:,}")
+        c4.metric("Suma total", f"${resumen_filtro['suma_total']:,.2f}")
 
     # ── PASO 2: CONCILIAR ─────────────────────────────────────────────────
     if btn_conciliar:
@@ -608,7 +621,11 @@ def _render_conciliar_puentes():
             _mostrar_resultado_puentes(df_resultado, cuenta_actual)
 
 
-def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta):
+def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta, mes_num=None):
+    """
+    Lee los auxiliares y filtra por cuenta. Si mes_num se proporciona,
+    también filtra por ese mes (1=enero … 12=diciembre).
+    """
     frames = []
     for archivo in archivos:
         try:
@@ -617,9 +634,21 @@ def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta):
             col_cuenta = "codigocuenta"
             if col_cuenta not in df.columns:
                 continue
+
+            # Filtro por cuenta
             filtrado = df[df[col_cuenta].astype(str).str.strip() == str(codigo_cuenta).strip()].copy()
             if filtrado.empty:
                 continue
+
+            # Filtro por mes si se especificó
+            if mes_num is not None:
+                col_fec = next((c for c in filtrado.columns if c == "fecha"), None)
+                if col_fec:
+                    filtrado[col_fec] = pd.to_datetime(filtrado[col_fec], dayfirst=True, errors="coerce")
+                    filtrado = filtrado[filtrado[col_fec].dt.month == mes_num].copy()
+                if filtrado.empty:
+                    continue
+
             empresa = str(filtrado["empresa"].iloc[0]).strip() if "empresa" in filtrado.columns else archivo.name
             filtrado.insert(0, "Source.Name", empresa)
             frames.append(filtrado)
@@ -653,7 +682,6 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
         df["concilia_con_id"] = "CONCILIADA"
         return df
 
-    # PASO 1A: Pares exactos dentro de la misma cédula → SIN NOVEDAD
     def _buscar_pares_internos(grupo):
         pares = set()
         pos    = grupo[grupo[col_valor] > 0]
@@ -676,7 +704,6 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
         indices_sn_interno.update(pares)
     df.loc[list(indices_sn_interno), "concilia_con_id"] = "SIN NOVEDAD"
 
-    # PASO 1B: Saldo neto = 0 por cédula → SIN NOVEDAD
     df_resto     = df[df["concilia_con_id"] == ""]
     saldos_resto = df_resto[df_resto[col_iden] != ""].groupby(col_iden)[col_valor].sum().round(2)
 
@@ -687,7 +714,6 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
     ced_con_sal = {ced: round(sal, 2) for ced, sal in saldos_resto.items()
                    if abs(sal) >= 0.01 and ced not in ced_sin_nov2}
 
-    # PASO 2: Grupos de cédulas cuyo saldo neto sume 0 → CONCILIA CON ID
     saldos_pend  = dict(ced_con_sal)
     concilia_map = {}
 
@@ -731,7 +757,6 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
         else:
             df.loc[filas_ced.index, "concilia_con_id"] = label
 
-    # PASO 3: Resto → REVISAR
     df.loc[df["concilia_con_id"] == "", "concilia_con_id"] = "REVISAR"
 
     return df
@@ -777,7 +802,6 @@ def _mostrar_resultado_puentes(df, codigo_cuenta):
     fecha_str = ayer.strftime("%d_%m_%Y")
     nombre_archivo_puentes = f"CONCILIACION_{codigo_cuenta}_{fecha_str}.xlsx"
 
-    # Guardar automáticamente en ruta configurada
     cfg = st.session_state.get("config", {})
     ruta_auto_puentes = cfg.get("ruta_conc_puentes", "")
     if ruta_auto_puentes:
@@ -892,4 +916,4 @@ def _render_carga_auxiliares_puentes():
         st.success(f"✅ {len(cargados)} auxiliar(es) listos.")
         for a in cargados:
             st.caption(f"   📄 {a.name}")
-        st.info("👉 Ve a la pestaña **2. Conciliar**, ingresa el código de cuenta y filtra.")
+        st.info("👉 Ve a la pestaña **2. Conciliar**, ingresa el código de cuenta, selecciona el mes y filtra.")
