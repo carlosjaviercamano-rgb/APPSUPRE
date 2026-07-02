@@ -452,12 +452,17 @@ def _render_conciliar_bancaria():
             nombre_archivo = f"CONCILIACION_{cuenta_limpia}_{fecha_str}.xlsx"
 
             cfg = st.session_state.get("config", {})
-            nombre_lower = cuenta_nom.lower()
+            EMPRESAS_OCCIDENTE = {
+                "amanecerdepascua", "anochecerdepascua", "mañanadepascua",
+                "grigroup", "movicap", "seguroconfianzaglobal", "confianzaglobal"
+            }
+            nombre_lower  = cuenta_nom.lower()
+            empresa_lower = empresa.lower().replace(" ", "")
             if "bancolombia" in nombre_lower:
                 ruta_auto = cfg.get("ruta_conc_bancolombia", "")
             elif "davivienda" in nombre_lower:
                 ruta_auto = cfg.get("ruta_conc_davivienda", "")
-            elif "occidente" in nombre_lower:
+            elif "occidente" in nombre_lower or empresa_lower in EMPRESAS_OCCIDENTE:
                 ruta_auto = cfg.get("ruta_conc_occidente", "")
             elif "bogota" in nombre_lower or "bogotá" in nombre_lower:
                 ruta_auto = cfg.get("ruta_conc_bogota", "")
