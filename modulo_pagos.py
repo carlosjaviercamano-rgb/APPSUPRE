@@ -183,8 +183,28 @@ def render_carga_archivos():
             st.session_state.archivo_corresponsal = archivo
 
     st.markdown("**📂 Libro de Banco**")
-    st.caption("Archivo descargado de SharePoint / OneDrive — se reemplaza cada vez que vayas a trabajar.")
+    st.caption("Descarga automáticamente desde SharePoint o súbelo manualmente.")
 
+    # ── Opción SharePoint (solo versión local) ────────────────────────────
+    try:
+        from sharepoint_connector import render_sharepoint_widget, tiene_token
+        col_sp1, col_sp2 = st.columns([3, 1])
+        with col_sp1:
+            if tiene_token():
+                st.success("✅ SharePoint conectado — puedes descargar el Libro automáticamente.")
+            else:
+                st.info("🔗 Conecta SharePoint para descargar el Libro automáticamente.")
+        with col_sp2:
+            if st.button("🔗 SharePoint", key="btn_abrir_sp", use_container_width=True):
+                st.session_state["mostrar_sp"] = not st.session_state.get("mostrar_sp", False)
+                st.rerun()
+
+        if st.session_state.get("mostrar_sp", False):
+            render_sharepoint_widget()
+    except ImportError:
+        pass
+
+    st.markdown("**⬆️ O súbelo manualmente:**")
     archivo_libro = st.file_uploader(
         "Subir libro de banco",
         type=["xlsx", "xlsm"],
@@ -535,7 +555,7 @@ def _mostrar_reemplazo_cedulas():
                 with col_c:
                     company_sel = st.selectbox(
                         "Company",
-                        ["Suprecartera", "Suprecredito", "Movicap", "TuCredito"],
+                        ["Suprecartera", "Suprecreditos", "Movicap", "TuCredito"],
                         key=f"company_{cedula}_{i}"
                     )
                 with col_f:

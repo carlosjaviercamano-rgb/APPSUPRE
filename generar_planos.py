@@ -3,21 +3,21 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from datetime import datetime
 import io
+import os
 import zipfile
 import streamlit as st
 
 EMPRESAS = {
     "Movicap":       "ruta_movicap",
     "Suprecartera":  "ruta_suprecartera",
-    "Suprecredito": "ruta_suprecredito",
+    "Suprecredito":  "ruta_suprecredito",
     "TuCredito":     "ruta_tucredito",
 }
 
-# Código de método de pago por empresa
 METODO_PAGO = {
     "Movicap":       "0041",
     "TuCredito":     "0041",
-    "Suprecredito": "0041",
+    "Suprecredito":  "0041",
     "Suprecartera":  "0041",
 }
 
@@ -28,7 +28,6 @@ def crear_planos(df_sheet1, config, df_area_banco, tipo_pago,
     if df_sheet1 is None or df_sheet1.empty:
         raise ValueError("No hay datos en Sheet1 para generar planos.")
 
-    # Fecha documento = más reciente en AREA DE BANCO columna FECHA
     fecha_doc = None
     if df_area_banco is not None and "FECHA" in df_area_banco.columns:
         fechas = pd.to_datetime(df_area_banco["FECHA"], errors="coerce").dropna()
@@ -41,56 +40,77 @@ def crear_planos(df_sheet1, config, df_area_banco, tipo_pago,
 
     archivos_generados = []
 
-    # Normalizar listas especiales
-    excluidas       = [str(c).strip() for c in (cedulas_excluidas or [])]
-    solo_cuota      = [str(c).strip() for c in (cedulas_solo_cuota or [])]
-    inmovilizadas   = {str(k).strip(): v for k,v in (cedulas_inmovilizadas or {}).items()}
-
-    SERVICIOS_INMOV = [
-        ("Intereses moratorios",      "8888"),
-        ("Gestión Cobranza",          "919302"),
-        ("Inmovilización",            "19051"),
-        ("Parqueo",                   "19053"),
-        ("Inmovilización A-P",        "19052"),
-        ("Trasporte Inmovilización",  "19054"),
-    ]
+    excluidas     = [str(c).strip() for c in (cedulas_excluidas or [])]
+    solo_cuota    = [str(c).strip() for c in (cedulas_solo_cuota or [])]
+    inmovilizadas = {str(k).strip(): v for k, v in (cedulas_inmovilizadas or {}).items()}
 
     for empresa in EMPRESAS:
-        # Filtrar por empresa (columna COMPANY)
         df_emp = df_sheet1[
             df_sheet1["COMPANY"].astype(str).str.strip().str.upper() == empresa.upper()
         ].copy()
 
-        # Excluir cédulas indicadas
         if excluidas and "IDEN" in df_emp.columns:
-            df_emp = df_emp[
-                ~df_emp["IDEN"].astype(str).str.strip().isin(excluidas)
-            ]
+            df_emp = df_emp[~df_emp["IDEN"].astype(str).str.strip().isin(excluidas)]
 
         df_emp = df_emp.reset_index(drop=True)
-
         if df_emp.empty:
             continue
 
-        # Construir las 3 hojas
         df_cash     = _construir_cash_receipt(df_emp, empresa, solo_cuota, inmovilizadas)
         df_services = _construir_services(df_emp, df_cash, inmovilizadas)
         df_payment  = _construir_payment_method(df_emp, df_cash, empresa)
 
-        nombre = f"{tipo_str}_{empresa}_{fecha_str}_{hora_str}.xlsx"
-        buffer = _generar_excel(df_cash, df_services, df_payment)
-        archivos_generados.append({
-            "nombre":  nombre,
-            "buffer":  buffer,
-            "empresa": empresa
-        })
+        # ── Partir en bloques de máx 150 filas ───────────────────────────
+        LIMITE = 150
+        total_filas = len(df_cash)
+        n_bloques   = max(1, -(-total_filas // LIMITE))  # ceil division
+
+        clave_ruta = EMPRESAS.get(empresa, "")
+        ruta_auto  = config.get(clave_ruta, "") if config else ""
+
+        for bloque_idx in range(n_bloques):
+            inicio = bloque_idx * LIMITE
+            fin    = inicio + LIMITE
+
+            df_cash_b     = df_cash.iloc[inicio:fin].reset_index(drop=True)
+            df_emp_b      = df_emp.iloc[inicio:fin].reset_index(drop=True)
+            df_services_b = _construir_services(df_emp_b, df_cash_b, inmovilizadas)
+            df_payment_b  = _construir_payment_method(df_emp_b, df_cash_b, empresa)
+
+            # Renumerar IDs desde 1 en cada bloque
+            df_cash_b["id"] = range(1, len(df_cash_b) + 1)
+            df_services_b   = _construir_services(df_emp_b, df_cash_b, inmovilizadas)
+            df_payment_b    = _construir_payment_method(df_emp_b, df_cash_b, empresa)
+
+            sufijo = f"_{bloque_idx + 1}" if n_bloques > 1 else ""
+            nombre = f"{tipo_str}_{empresa}_{fecha_str}_{hora_str}{sufijo}.xlsx"
+            buffer = _generar_excel(df_cash_b, df_services_b, df_payment_b)
+
+            # ── Guardar automáticamente en ruta configurada ───────────────
+            if ruta_auto:
+                try:
+                    os.makedirs(ruta_auto, exist_ok=True)
+                    ruta_completa = os.path.join(ruta_auto, nombre)
+                    buffer.seek(0)
+                    with open(ruta_completa, "wb") as f:
+                        f.write(buffer.read())
+                    st.success(f"💾 {empresa}{sufijo}: guardado en {ruta_completa}")
+                except Exception as e:
+                    st.warning(f"⚠️ {empresa}{sufijo}: no se pudo guardar — {str(e)}")
+                buffer.seek(0)
+
+            archivos_generados.append({
+                "nombre":  nombre,
+                "buffer":  buffer,
+                "empresa": f"{empresa}{sufijo}"
+            })
 
     if not archivos_generados:
         return "No se encontraron datos para ninguna empresa."
 
-    # Botones de descarga
     st.markdown("#### 📥 Descargar planos generados:")
     for arch in archivos_generados:
+        arch["buffer"].seek(0)
         st.download_button(
             label=f"⬇️  Descargar {arch['empresa']}",
             data=arch["buffer"],
@@ -107,11 +127,6 @@ def crear_planos(df_sheet1, config, df_area_banco, tipo_pago,
 # ══════════════════════════════════════════════════════════════════════════
 
 def _construir_cash_receipt(df, empresa, solo_cuota=None, inmovilizadas=None):
-    """
-    Replica la lógica de CashReceipt_demo:
-    A=id(1), B="DC", C=104, D=fechaDocumento, E=fechaPago,
-    F=detalle, G="CC", H=dni, I=factura, J=valorPago, K=1, L=1, M=1
-    """
     solo_cuota    = solo_cuota or []
     inmovilizadas = inmovilizadas or {}
     rows = []
@@ -125,19 +140,15 @@ def _construir_cash_receipt(df, empresa, solo_cuota=None, inmovilizadas=None):
         diferencia = _num(row.get("DIFERENCIA"))
         valor_cb   = _num(row.get("VALOR_CB"))
 
-        # Si tiene corresponsal (valor_cb > 0) → valorPago = DIFERENCIA
-        # Si no tiene corresponsal → valorPago = CUOTA
         valor_pago = diferencia if valor_cb > 0 and diferencia > 0 else cuota
 
-        # Determinar si aplica 0 en columnas especiales
-        ced_str = str(cedula).strip()
+        ced_str          = str(cedula).strip()
         es_solo_cuota    = ced_str in solo_cuota
         es_inmovilizada  = ced_str in inmovilizadas
 
-        # Si inmovilizada, valor_pago = cuota_total - suma_servicios
         if es_inmovilizada:
-            data_im = inmovilizadas[ced_str]
-            suma_serv  = sum(float(v or 0) for v in data_im["servicios"].values())
+            data_im   = inmovilizadas[ced_str]
+            suma_serv = sum(float(v or 0) for v in data_im["servicios"].values())
             valor_pago = float(data_im["cuota_total"]) - suma_serv
 
         aplica = 0 if (es_solo_cuota or es_inmovilizada) else 1
@@ -163,26 +174,20 @@ def _construir_cash_receipt(df, empresa, solo_cuota=None, inmovilizadas=None):
 
 
 def _construir_services(df, df_cash, inmovilizadas=None):
-    """
-    Replica la lógica de Services_demo:
-    A=idDocumento, B=codigoServicio(según valor_cb/inmov/otros),
-    C=valor, D=factura, F=dni, G="CC"
-    """
     inmovilizadas = inmovilizadas or {}
     rows = []
     for (idx, row_emp), (_, row_cash) in zip(df.iterrows(), df_cash.iterrows()):
-        cedula  = row_cash.get("dni")
+        cedula = row_cash.get("dni")
         if not cedula:
             continue
         ced_str = str(cedula).strip()
 
-        valor_cb      = _num(row_emp.get("VALOR_CB"))
+        valor_cb       = _num(row_emp.get("VALOR_CB"))
         inmovilizacion = _num(row_emp.get("INMOVILIZACION"))
         otros_gastos   = _num(row_emp.get("OTROS_GASTOS"))
         id_doc         = row_cash.get("id", 1)
         factura        = row_emp.get("NUM_FACTURA", "")
 
-        # Servicios normales (corresponsal, inmovilización base, otros)
         if valor_cb > 0:
             rows.append({"idDocumento": id_doc, "codigoServicio": 586325,
                          "valor": valor_cb, "factura": factura,
@@ -196,7 +201,6 @@ def _construir_services(df, df_cash, inmovilizadas=None):
                          "valor": otros_gastos, "factura": factura,
                          "fechaVencimiento": None, "dni": cedula, "codigoTipoDni": "CC"})
 
-        # Servicios de inmovilizadas (agregar uno por cada servicio con valor > 0)
         if ced_str in inmovilizadas:
             data_im = inmovilizadas[ced_str]
             for cod_s, val_s in data_im["servicios"].items():
@@ -215,22 +219,16 @@ def _construir_services(df, df_cash, inmovilizadas=None):
 
 
 def _construir_payment_method(df, df_cash, empresa, inmovilizadas=None):
-    """
-    Replica la lógica de PaymentMethod_demo:
-    A=idDocumento, B=codigoMetodoPago(según empresa),
-    C=valor(cuota), E=dni, F="CC"
-    """
     metodo = METODO_PAGO.get(empresa, "0040")
     rows = []
     for (idx, row_emp), (_, row_cash) in zip(df.iterrows(), df_cash.iterrows()):
         cedula = row_cash.get("dni")
         if not cedula:
             continue
-
         rows.append({
             "idDocumento":      row_cash.get("id", 1),
             "codigoMetodoPago": metodo,
-            "valor":            _num(row_emp.get("CUOTA")),  # Siempre el valor total
+            "valor":            _num(row_emp.get("CUOTA")),
             "voucher":          None,
             "dni":              cedula,
             "codigoTipoDni":    "CC",
@@ -245,11 +243,9 @@ def _construir_payment_method(df, df_cash, empresa, inmovilizadas=None):
 
 def _generar_excel(df_cash, df_services, df_payment):
     wb = openpyxl.Workbook()
-
     _escribir_hoja(wb.active, "CashReceipt", df_cash)
     _escribir_hoja(wb.create_sheet("Services"), "Services", df_services)
     _escribir_hoja(wb.create_sheet("PaymentMethod"), "PaymentMethod", df_payment)
-
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
@@ -258,24 +254,19 @@ def _generar_excel(df_cash, df_services, df_payment):
 
 def _escribir_hoja(ws, titulo, df):
     ws.title = titulo
-
-    # Estilo encabezado
-    header_fill = PatternFill("solid", fgColor="1F4E79")
-    header_font = Font(bold=True, color="FFFFFF", size=10)
+    header_fill  = PatternFill("solid", fgColor="1F4E79")
+    header_font  = Font(bold=True, color="FFFFFF", size=10)
     header_align = Alignment(horizontal="center", vertical="center")
 
-    # Escribir encabezados
     for col_idx, col_name in enumerate(df.columns, start=1):
         cell = ws.cell(row=1, column=col_idx, value=col_name)
-        cell.fill   = header_fill
-        cell.font   = header_font
+        cell.fill      = header_fill
+        cell.font      = header_font
         cell.alignment = header_align
 
-    # Columnas que deben tener formato fecha
     cols_fecha = [col for col in df.columns if "fecha" in col.lower()]
     idx_fechas = [list(df.columns).index(c) + 1 for c in cols_fecha]
 
-    # Escribir datos
     for row_idx, row in df.iterrows():
         for col_idx, value in enumerate(row, start=1):
             cell = ws.cell(row=row_idx + 2, column=col_idx, value=value)
@@ -286,7 +277,6 @@ def _escribir_hoja(ws, titulo, df):
                 except Exception:
                     pass
 
-    # Ajustar ancho de columnas
     for col in ws.columns:
         max_len = max((len(str(c.value)) if c.value else 0) for c in col)
         ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
@@ -297,7 +287,6 @@ def _escribir_hoja(ws, titulo, df):
 # ══════════════════════════════════════════════════════════════════════════
 
 def _factura(val):
-    """Formatea factura sin decimales .0"""
     if not val or str(val).strip() == "" or str(val) == "nan":
         return ""
     try:
@@ -310,7 +299,6 @@ def _factura(val):
 
 
 def _num(val):
-    """Convierte a float seguro."""
     try:
         return float(str(val).replace(",", "") or 0)
     except Exception:
@@ -318,7 +306,6 @@ def _num(val):
 
 
 def _fecha(val):
-    """Convierte a datetime para que Excel aplique formato de fecha."""
     if val is None:
         return None
     try:

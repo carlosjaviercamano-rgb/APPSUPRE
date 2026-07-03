@@ -3,10 +3,10 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from datetime import datetime
 import io
+import os
 import zipfile
 import streamlit as st
 
-# ── Configuración BANCARIOS ────────────────────────────────────────────────
 NIT_ENTIDAD_BANCARIOS = {
     "BANCOLOMBIA": "890903938",
     "DAVIVIENDA":  "860034313",
@@ -19,11 +19,10 @@ CODIGO_CENTRO_COSTO   = "102"
 CODIGO_CUENTA_DEBITO  = "141299011"
 CODIGO_CUENTA_CREDITO = "110505017"
 
-# ── Configuración RECAUDOS ─────────────────────────────────────────────────
 ENTIDADES_RECAUDO = {
-    "PSE":                  {"nit": "830078512", "cuenta": "138095009"},
-    "EFECTY":               {"nit": "830131993", "cuenta": "138095008"},
-    "RECORD":               {"nit": "800040390", "cuenta": "138095003"},
+    "PSE":                    {"nit": "830078512", "cuenta": "138095009"},
+    "EFECTY":                 {"nit": "830131993", "cuenta": "138095008"},
+    "RECORD":                 {"nit": "800040390", "cuenta": "138095003"},
     "EFECTY-BANCO DE BOGOTA": {"nit": "830131993", "cuenta": "138095010"},
 }
 
@@ -43,6 +42,8 @@ def crear_compensaciones(df_area_banco, config, tipo_pago="bancarios"):
     hora_str = datetime.now().strftime("%H_%M_%S")
     archivos_generados = []
 
+    ruta_auto = config.get("ruta_compensaciones", "") if config else ""
+
     for fecha_doc in sorted(fechas_doc):
         df_grupo = df[df["FECHA_DOC_NORM"] == fecha_doc].copy().reset_index(drop=True)
         if df_grupo.empty:
@@ -56,6 +57,19 @@ def crear_compensaciones(df_area_banco, config, tipo_pago="bancarios"):
         else:
             buffer = _generar_recaudos(df_grupo, fecha_doc)
 
+        # ── Guardar automáticamente en ruta configurada ──────────────────
+        if ruta_auto:
+            try:
+                os.makedirs(ruta_auto, exist_ok=True)
+                ruta_completa = os.path.join(ruta_auto, nombre)
+                buffer.seek(0)
+                with open(ruta_completa, "wb") as f:
+                    f.write(buffer.read())
+                st.success(f"💾 Guardado en: {ruta_completa}")
+            except Exception as e:
+                st.warning(f"⚠️ No se pudo guardar automáticamente: {str(e)}")
+            buffer.seek(0)
+
         archivos_generados.append({
             "nombre": nombre,
             "buffer": buffer,
@@ -65,7 +79,6 @@ def crear_compensaciones(df_area_banco, config, tipo_pago="bancarios"):
     if not archivos_generados:
         return "No se generaron compensaciones."
 
-    # ZIP con todos
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for arch in archivos_generados:
@@ -104,8 +117,8 @@ def crear_compensaciones(df_area_banco, config, tipo_pago="bancarios"):
 # LÓGICA BANCARIOS
 # ══════════════════════════════════════════════════════════════════════════
 def _generar_bancarios(df):
-    wb  = openpyxl.Workbook()
-    ws  = wb.active
+    wb = openpyxl.Workbook()
+    ws = wb.active
     ws.title = "Items"
 
     _escribir_encabezado(ws)
@@ -113,11 +126,10 @@ def _generar_bancarios(df):
     consecutivo = 1
     fila_excel  = 2
     filas_validas = [row for _, row in df.iterrows()
-                     if str(row.get("CEDULA","")).strip() not in ("", "nan")]
+                     if str(row.get("CEDULA", "")).strip() not in ("", "nan")]
 
-    # DÉBITOS
     for row in filas_validas:
-        entidad = str(row.get("ENTIDAD","")).upper().strip()
+        entidad = str(row.get("ENTIDAD", "")).upper().strip()
         valor   = _num(row.get("VALOR"))
         fra     = _factura(row.get("FRA") or row.get("NUM_FACTURA"))
         fecha_v = _fecha_dt(row.get("FECHA"))
@@ -145,9 +157,8 @@ def _generar_bancarios(df):
         consecutivo += 1
         fila_excel  += 1
 
-    # CRÉDITOS
     for row in filas_validas:
-        cedula = str(row.get("CEDULA","")).strip()
+        cedula = str(row.get("CEDULA", "")).strip()
         valor  = _num(row.get("VALOR"))
 
         _escribir_fila(ws, fila_excel, [
@@ -177,20 +188,17 @@ def _generar_recaudos(df, fecha_doc):
 
     _escribir_encabezado(ws)
 
-    consecutivo = 1
-    fila_excel  = 2
-
-    fecha_doc_dt = _fecha_dt(fecha_doc)
+    consecutivo   = 1
+    fila_excel    = 2
+    fecha_doc_dt  = _fecha_dt(fecha_doc)
     fecha_doc_str = pd.Timestamp(fecha_doc).strftime("%d-%m-%Y") if fecha_doc else ""
 
-    # ── DÉBITOS: una fila por entidad recaudadora con suma de valores ────
     for nombre_entidad, info in ENTIDADES_RECAUDO.items():
-        # Sumar valores de esa entidad
-        mask = df["ENTIDAD"].astype(str).str.upper().str.strip() == nombre_entidad.upper()
+        mask  = df["ENTIDAD"].astype(str).str.upper().str.strip() == nombre_entidad.upper()
         total = pd.to_numeric(df.loc[mask, "VALOR"], errors="coerce").sum()
 
         if total <= 0:
-            continue  # Solo aparece si hay valores
+            continue
 
         detalle = f"{nombre_entidad} COMPENSACION {fecha_doc_str}"
 
@@ -211,32 +219,29 @@ def _generar_recaudos(df, fecha_doc):
         consecutivo += 1
         fila_excel  += 1
 
-    # ── CRÉDITOS: uno por cliente ────────────────────────────────────────
     for _, row in df.iterrows():
-        cedula  = str(row.get("CEDULA","")).strip()
+        cedula = str(row.get("CEDULA", "")).strip()
         if not cedula or cedula == "nan":
             continue
 
         valor   = _num(row.get("VALOR"))
-        recibos = str(row.get("RECIBOS","")).strip()
-        entidad = str(row.get("ENTIDAD","")).upper().strip()
+        recibos = str(row.get("RECIBOS", "")).strip()
+        entidad = str(row.get("ENTIDAD", "")).upper().strip()
         fra     = _factura(row.get("FRA") or row.get("NUM_FACTURA"))
         fecha_v = _fecha_dt(row.get("FECHA"))
-        detalle = str(row.get("DETALLE",""))
+        detalle = str(row.get("DETALLE", ""))
 
         if recibos == "NO EXISTE":
-            # Crédito va al NIT de la entidad recaudadora
-            info_ent = ENTIDADES_RECAUDO.get(entidad, {})
+            info_ent  = ENTIDADES_RECAUDO.get(entidad, {})
             nit_cred  = info_ent.get("nit", "")
             tipo_dni  = "NIT"
-            cuenta    = CODIGO_CUENTA_DEBITO   # 141299011
+            cuenta    = CODIGO_CUENTA_DEBITO
             fra_out   = fra
             fecha_out = fecha_v
         else:
-            # Crédito normal al cliente
             nit_cred  = cedula
             tipo_dni  = "CC"
-            cuenta    = CODIGO_CUENTA_CREDITO  # 110505017
+            cuenta    = CODIGO_CUENTA_CREDITO
             fra_out   = ""
             fecha_out = None
 
