@@ -446,8 +446,20 @@ def _render_conciliar_bancaria():
 
         if st.session_state.get("banc_excel"):
             from datetime import date, timedelta
-            ayer = date.today() - timedelta(days=1)
-            fecha_str = ayer.strftime("%d_%m_%Y")
+            import calendar as _cal
+            MESES_CB_LIST = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO",
+                             "JULIO","AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"]
+            hoy     = date.today()
+            mes_idx = MESES_CB_LIST.index(mes) + 1 if mes in MESES_CB_LIST else hoy.month
+            anio    = hoy.year
+            if mes_idx > hoy.month:
+                anio -= 1
+            if mes_idx == hoy.month and anio == hoy.year:
+                fecha_ref = hoy - timedelta(days=1)
+            else:
+                ultimo_dia = _cal.monthrange(anio, mes_idx)[1]
+                fecha_ref  = date(anio, mes_idx, ultimo_dia)
+            fecha_str = fecha_ref.strftime("%d_%m_%Y")
             cuenta_limpia = cuenta_nom.replace("/", "-").replace("\\", "-").strip()
             nombre_archivo = f"CONCILIACION_{cuenta_limpia}_{fecha_str}.xlsx"
 
@@ -803,8 +815,21 @@ def _mostrar_resultado_puentes(df, codigo_cuenta):
     st.session_state["puentes_resultado_bytes"] = buf.getvalue()
 
     from datetime import date, timedelta
-    ayer = date.today() - timedelta(days=1)
-    fecha_str = ayer.strftime("%d_%m_%Y")
+    import calendar as _cal
+    MESES_P_LIST = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO",
+                    "JULIO","AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"]
+    hoy      = date.today()
+    mes_p    = st.session_state.get("puentes_mes", "")
+    mes_idx_p = MESES_P_LIST.index(mes_p) + 1 if mes_p in MESES_P_LIST else hoy.month
+    anio_p   = hoy.year
+    if mes_idx_p > hoy.month:
+        anio_p -= 1
+    if mes_idx_p == hoy.month and anio_p == hoy.year:
+        fecha_ref_p = hoy - timedelta(days=1)
+    else:
+        ultimo_dia_p = _cal.monthrange(anio_p, mes_idx_p)[1]
+        fecha_ref_p  = date(anio_p, mes_idx_p, ultimo_dia_p)
+    fecha_str = fecha_ref_p.strftime("%d_%m_%Y")
     nombre_archivo_puentes = f"CONCILIACION_{codigo_cuenta}_{fecha_str}.xlsx"
 
     cfg = st.session_state.get("config", {})
