@@ -267,10 +267,11 @@ with st.sidebar:
     st.markdown("**MÓDULOS**", help="Selecciona el módulo de trabajo")
 
     for key, icon, label, badge, bcls in [
-        ("pagos",         "💳", "Aplicación y Compensación",  "Activo", "ready"),
-        ("cargue",        "📤", "Cargue Banco",                "Activo",  "ready"),
-        ("conciliacion",  "🔍", "Conciliaciones",               "Activo",  "ready"),
-        ("dashboard",     "📊", "Dashboard",                   "Activo",  "ready"),
+        ("pagos",        "💳", "Aplicación y Compensación", "Activo", "ready"),
+        ("cargue",       "📤", "Cargue Banco",               "Activo", "ready"),
+        ("conciliacion", "🔍", "Conciliaciones",              "Activo", "ready"),
+        ("dashboard",    "📊", "Dashboard",                  "Activo", "ready"),
+        ("convertidor",  "🔄", "Convertidor de Archivos",    "Activo", "ready"),
     ]:
         is_active = st.session_state.modulo == key
         btn_style = "background:#1e40af;color:white;" if is_active else ""
@@ -417,3 +418,6 @@ elif modulo == "conciliacion":
 elif modulo == "dashboard":
     import importlib, modulo_dashboard; importlib.reload(modulo_dashboard); from modulo_dashboard import render as render_dashboard
     render_dashboard()
+elif modulo == "convertidor":
+    from modulo_convertidor import render as render_convertidor
+    render_convertidor()
