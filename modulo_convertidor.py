@@ -29,6 +29,9 @@ def render():
     elif sub == "efecty_record":
         _render_volver()
         render_efecty_record()
+    elif sub == "bancolombia":
+        _render_volver()
+        render_bancolombia()
 
 
 def _render_menu():
@@ -57,15 +60,17 @@ def _render_menu():
         st.markdown("""
         <div style="background:#1a1f2e;border:1px solid #2d3548;border-radius:12px;
                     padding:1.5rem;text-align:center;">
-            <div style="font-size:2.5rem">➕</div>
+            <div style="font-size:2.5rem">🏦</div>
             <div style="font-weight:700;color:#fff;margin-top:0.5rem;font-size:1rem">
-                Próximamente</div>
+                Bancolombia</div>
             <div style="color:#64748b;font-size:0.8rem;margin-top:0.3rem">
-                Nuevos convertidores</div>
+                Extracto PDF → Excel estructurado</div>
         </div>
         """, unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
-        st.button("Próximamente", key="btn_prox1", use_container_width=True, disabled=True)
+        if st.button("Entrar →", key="btn_bancolombia", use_container_width=True, type="primary"):
+            st.session_state.submodulo_convertidor = "bancolombia"
+            st.rerun()
 
     with col3:
         st.markdown("""
@@ -440,3 +445,287 @@ def _nombre_hoja_seguro(nombre):
     for ch in invalidos:
         nombre = nombre.replace(ch, "")
     return nombre[:31]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# CONVERTIDOR BANCOLOMBIA — EXTRACTO PDF
+# ══════════════════════════════════════════════════════════════════════════
+
+def render_bancolombia():
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);border-radius:10px;
+                padding:1rem 1.5rem;margin-bottom:1rem;">
+        <h3 style="color:#fff;margin:0">🏦 Bancolombia — Extracto PDF</h3>
+        <p style="color:#93c5fd;margin:0.2rem 0 0 0;font-size:0.85rem">
+            Convierte el extracto bancario PDF a Excel estructurado</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    archivo = st.file_uploader(
+        "Sube el archivo de extracto (.pdf)",
+        type=["pdf"],
+        key="up_banc_pdf",
+        label_visibility="collapsed"
+    )
+
+    if archivo is None:
+        st.info("📂 Sube el archivo PDF para continuar.")
+        return
+
+    try:
+        datos     = _parsear_pdf_bancolombia(archivo)
+    except Exception as e:
+        st.error(f"❌ Error al leer el PDF: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
+        return
+
+    if not datos["registros"]:
+        st.error("❌ No se encontraron movimientos en el archivo.")
+        return
+
+    st.success(
+        f"✅ **{datos['empresa']}** | Cuenta: {datos['num_cuenta']} | "
+        f"Fecha: {datos['fecha']} | **{len(datos['registros'])} movimientos**"
+    )
+
+    # Preview
+    st.markdown("#### 📊 Vista previa")
+    import pandas as pd
+    df_prev = pd.DataFrame(datos["registros"])
+    st.dataframe(df_prev.head(20), use_container_width=True, hide_index=True)
+
+    # Nombre archivo
+    nombre_xlsx = _nombre_bancolombia(archivo.name, datos["fecha"])
+    excel_bytes = _generar_excel_bancolombia(datos)
+
+    # Guardar automáticamente
+    ruta_auto = r"C:\Users\ASUS\Desktop\BANCOS\CONVERTIDOR DE ARCHIVO"
+    try:
+        import os
+        os.makedirs(ruta_auto, exist_ok=True)
+        ruta_completa = os.path.join(ruta_auto, nombre_xlsx)
+        with open(ruta_completa, "wb") as f:
+            f.write(excel_bytes)
+        st.success(f"💾 Guardado automáticamente en: {ruta_completa}")
+    except Exception as e:
+        st.warning(f"⚠️ No se pudo guardar automáticamente: {str(e)}")
+
+    st.download_button(
+        label=f"⬇️  Descargar Excel — {nombre_xlsx}",
+        data=excel_bytes,
+        file_name=nombre_xlsx,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="primary",
+        use_container_width=True,
+        key="dl_banc_excel"
+    )
+
+
+def _nombre_bancolombia(nombre_archivo, fecha_datos):
+    """
+    ZIP_16600000605_000000901347233_20260704_08120932.pdf
+    → BANCOLOMBIA0605_20260704.xlsx
+    Toma los últimos 4 dígitos del segundo segmento y la fecha del tercer segmento.
+    """
+    import re
+    nombre = nombre_archivo.replace(".pdf", "").replace(".PDF", "")
+    partes = nombre.split("_")
+    # partes[0]=ZIP, partes[1]=num_cuenta, partes[2]=nit, partes[3]=fecha
+    if len(partes) >= 4:
+        num_cuenta = partes[1][-4:]   # últimos 4 dígitos
+        fecha_arch = partes[3][:8]    # YYYYMMDD
+        return f"BANCOLOMBIA{num_cuenta}_{fecha_arch}.xlsx"
+    return f"BANCOLOMBIA_{nombre}.xlsx"
+
+
+def _parsear_pdf_bancolombia(archivo):
+    """Parsea el PDF de extracto Bancolombia y retorna dict con registros."""
+    import pdfplumber
+    import re
+
+    RE_VALOR = re.compile(r'(-?[\d,]+\.\d{2})$')
+    RE_FECHA = re.compile(r'^(\d{4}/\d{2}/\d{2})\s+')
+    RE_REFS  = re.compile(r'\s+(\d{7,15})\s+(\d{7,15})\s*$')
+    RE_REF1  = re.compile(r'\s+(\d{7,15})\s*$')
+    RE_ORPHAN = re.compile(r'^\d{3,5}$')  # líneas sueltas de 3-5 dígitos (teléfono NEQUI)
+
+    empresa = num_cuenta = fecha = tipo_cuenta = ""
+
+    archivo.seek(0)
+    contenido = archivo.read()
+
+    with pdfplumber.open(io.BytesIO(contenido)) as pdf:
+        all_lines = []
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                all_lines.extend(text.split('\n'))
+
+    # Extraer metadata del encabezado
+    for line in all_lines[:10]:
+        m = re.search(r'Empresa:\s*(.+?)\s+Número de Cuenta:\s*(\d+)', line)
+        if m:
+            empresa     = m.group(1).strip()
+            num_cuenta  = m.group(2).strip()
+        m2 = re.search(r'Fecha y Hora Actual:\s*(\d{2}-\d{2}-\d{4})', line)
+        if m2:
+            fecha = m2.group(1)
+        m3 = re.search(r'Tipo de cuenta:\s*(.+?)(?:\s{2}|$)', line)
+        if m3:
+            tipo_cuenta = m3.group(1).strip()
+
+    # Parsear movimientos
+    header_found = False
+    registros = []
+
+    for line in all_lines:
+        line_s = line.strip()
+
+        if 'FECHA' in line_s and 'DESCRIPCIÓN' in line_s and 'VALOR' in line_s:
+            header_found = True
+            continue
+
+        if not header_found or not line_s:
+            continue
+        if line_s.startswith('Página') or line_s.startswith('Saldo'):
+            continue
+        if RE_ORPHAN.match(line_s):
+            continue  # línea suelta de número de NEQUI
+
+        if not RE_FECHA.match(line_s):
+            continue
+
+        # Extraer fecha
+        m_f = RE_FECHA.match(line_s)
+        fecha_mov = m_f.group(1).replace('/', '-')
+        resto = line_s[m_f.end():]
+
+        # Extraer valor
+        m_v = RE_VALOR.search(resto)
+        if not m_v:
+            continue
+        valor = float(m_v.group(1).replace(',', ''))
+        resto = resto[:m_v.start()].strip()
+
+        # Extraer referencias
+        ref1 = ref2 = ''
+        m_r2 = RE_REFS.search(resto)
+        if m_r2:
+            ref1  = m_r2.group(1)
+            ref2  = m_r2.group(2)
+            resto = resto[:m_r2.start()].strip()
+        else:
+            m_r1 = RE_REF1.search(resto)
+            if m_r1:
+                ref1  = m_r1.group(1)
+                resto = resto[:m_r1.start()].strip()
+
+        # Separar descripcion y sucursal/canal
+        partes = re.split(r'\s{2,}', resto, maxsplit=1)
+        descripcion = partes[0].strip()
+        sucursal    = partes[1].strip() if len(partes) > 1 else ''
+
+        registros.append({
+            'FECHA':           fecha_mov,
+            'DESCRIPCION':     descripcion,
+            'SUCURSAL/CANAL':  sucursal,
+            'REFERENCIA 1':    ref1,
+            'REFERENCIA 2':    ref2,
+            'DOCUMENTO':       '',
+            'VALOR':           valor,
+        })
+
+    return {
+        "empresa":    empresa,
+        "num_cuenta": num_cuenta,
+        "fecha":      fecha,
+        "tipo_cuenta": tipo_cuenta,
+        "registros":  registros,
+    }
+
+
+def _generar_excel_bancolombia(datos):
+    """Genera el Excel con todos los movimientos en una sola hoja."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Movimientos"
+
+    font_base   = Font(name="Arial", size=10)
+    font_bold   = Font(name="Arial", size=10, bold=True)
+    font_titulo = Font(name="Arial", size=12, bold=True)
+    font_header = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+    fill_header = PatternFill("solid", fgColor="1F4E78")
+    fill_total  = PatternFill("solid", fgColor="D9E1F2")
+    align_c     = Alignment(horizontal="center", vertical="center")
+    align_l     = Alignment(horizontal="left",   vertical="center")
+    thin        = Side(style="thin", color="AAAAAA")
+    borde       = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    # Título fila 1
+    ws.merge_cells("A1:G1")
+    c = ws["A1"]
+    c.value     = (f"{datos['empresa']} | Cuenta: {datos['num_cuenta']} "
+                   f"({datos['tipo_cuenta']}) | Fecha: {datos['fecha']}")
+    c.font      = font_titulo
+    c.alignment = align_l
+
+    # Encabezados fila 3
+    cols   = ["FECHA", "DESCRIPCIÓN", "SUCURSAL/CANAL", "REFERENCIA 1",
+              "REFERENCIA 2", "DOCUMENTO", "VALOR"]
+    anchos = [14, 45, 25, 16, 16, 14, 16]
+    for ci, (h, w) in enumerate(zip(cols, anchos), 1):
+        cell = ws.cell(row=3, column=ci, value=h)
+        cell.font      = font_header
+        cell.fill      = fill_header
+        cell.alignment = align_c
+        cell.border    = borde
+        ws.column_dimensions[get_column_letter(ci)].width = w
+
+    # Datos desde fila 4
+    for ri, reg in enumerate(datos["registros"], 4):
+        vals = [
+            reg["FECHA"],
+            reg["DESCRIPCION"],
+            reg["SUCURSAL/CANAL"],
+            reg["REFERENCIA 1"],
+            reg["REFERENCIA 2"],
+            reg["DOCUMENTO"],
+            reg["VALOR"],
+        ]
+        for ci, val in enumerate(vals, 1):
+            cell = ws.cell(row=ri, column=ci, value=val)
+            cell.font      = font_base
+            cell.border    = borde
+            cell.alignment = align_c if ci != 2 else align_l
+            if ci == 7:
+                cell.number_format = "General"
+
+    # Fila total
+    n   = len(datos["registros"])
+    ft  = n + 5
+    ws.cell(row=ft, column=1, value="TOTAL MOVIMIENTOS").font  = font_bold
+    ws.cell(row=ft, column=1).fill                             = fill_total
+    ws.cell(row=ft, column=1).border                           = borde
+    ws.cell(row=ft, column=7,
+            value=f"=SUM(G4:G{n+3})").number_format            = "General"
+    ws.cell(row=ft, column=7).font                             = font_bold
+    ws.cell(row=ft, column=7).fill                             = fill_total
+    ws.cell(row=ft, column=7).border                           = borde
+    ws.cell(row=ft, column=2,
+            value=f"=COUNTA(A4:A{n+3})").number_format         = "General"
+    ws.cell(row=ft, column=2).font                             = font_bold
+    ws.cell(row=ft, column=2).fill                             = fill_total
+    ws.cell(row=ft, column=2).border                           = borde
+    for ci in range(3, 8):
+        c2 = ws.cell(row=ft, column=ci)
+        if ci not in (7, 2):
+            c2.fill   = fill_total
+            c2.border = borde
+
+    ws.freeze_panes = "A4"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
