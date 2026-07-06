@@ -110,6 +110,36 @@ def render_cargue_auxiliares(key_prefix=""):
     if key_archivos not in st.session_state:
         st.session_state[key_archivos] = []
 
+    # ── Carga automática desde OneDrive ─────────────────────────────────
+    RUTA_AUX_OD = (
+        "C:\\Users\\ASUS\\OneDrive - SUPRECREDITO SAS\\"
+        "Carlos C\\TEAMS ARCHIVOS"
+    )
+    if st.button("📂 Cargar desde OneDrive", key=f"btn_od_{key_prefix}",
+                 use_container_width=True):
+        try:
+            import os, io as _io
+            archivos_od = [
+                f for f in os.listdir(RUTA_AUX_OD)
+                if f.endswith(".xlsx") and "auxiliar" in f.lower()
+            ]
+            if not archivos_od:
+                st.warning("⚠️ No se encontraron archivos con 'Auxiliar' en el nombre.")
+            else:
+                cargados_od = []
+                for nombre in archivos_od[:15]:
+                    ruta_f = os.path.join(RUTA_AUX_OD, nombre)
+                    with open(ruta_f, "rb") as f:
+                        buf = _io.BytesIO(f.read())
+                    buf.name = nombre
+                    cargados_od.append(buf)
+                st.session_state[key_archivos] = cargados_od
+                st.success(f"✅ {len(cargados_od)} auxiliar(es) cargados desde OneDrive.")
+                st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error al cargar desde OneDrive: {str(e)}")
+
+    st.markdown("**⬆️ O selecciónalos manualmente:**")
     archivos = st.file_uploader(
         "Selecciona los auxiliares (.xlsx)",
         type=["xlsx"],
@@ -272,6 +302,36 @@ def render_bancaria():
                     st.session_state.pop(k, None)
                 st.rerun()
 
+        # ── Carga automática desde OneDrive ──────────────────────────────
+        RUTA_AUX_OD = (
+            "C:\\Users\\ASUS\\OneDrive - SUPRECREDITO SAS\\"
+            "Carlos C\\TEAMS ARCHIVOS"
+        )
+        if st.button("📂 Cargar desde OneDrive", key="btn_od_banc",
+                     use_container_width=True):
+            try:
+                import os, io as _io
+                archivos_od = [
+                    f for f in os.listdir(RUTA_AUX_OD)
+                    if f.endswith(".xlsx") and "auxiliar" in f.lower()
+                ]
+                if not archivos_od:
+                    st.warning("⚠️ No se encontraron archivos con 'Auxiliar' en el nombre.")
+                else:
+                    cargados_od = []
+                    for nombre in archivos_od[:15]:
+                        ruta_f = os.path.join(RUTA_AUX_OD, nombre)
+                        with open(ruta_f, "rb") as f:
+                            buf = _io.BytesIO(f.read())
+                        buf.name = nombre
+                        cargados_od.append(buf)
+                    st.session_state["banc_auxiliares"] = cargados_od
+                    st.success(f"✅ {len(cargados_od)} auxiliar(es) cargados desde OneDrive.")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error al cargar desde OneDrive: {str(e)}")
+
+        st.markdown("**⬆️ O selecciónalos manualmente:**")
         archivos_aux = st.file_uploader(
             "Selecciona los auxiliares (.xlsx)",
             type=["xlsx"], accept_multiple_files=True,
@@ -927,6 +987,36 @@ def _render_carga_auxiliares_puentes():
             st.session_state["puentes_auxiliares"] = []
             st.rerun()
 
+    # ── Carga automática desde OneDrive ─────────────────────────────────
+    RUTA_AUX_OD = (
+        "C:\\Users\\ASUS\\OneDrive - SUPRECREDITO SAS\\"
+        "Carlos C\\TEAMS ARCHIVOS"
+    )
+    if st.button("📂 Cargar desde OneDrive", key="btn_od_puentes",
+                 use_container_width=True):
+        try:
+            import os, io as _io
+            archivos_od = [
+                f for f in os.listdir(RUTA_AUX_OD)
+                if f.endswith(".xlsx") and "auxiliar" in f.lower()
+            ]
+            if not archivos_od:
+                st.warning("⚠️ No se encontraron archivos con 'Auxiliar' en el nombre.")
+            else:
+                cargados_od = []
+                for nombre in archivos_od[:15]:
+                    ruta_f = os.path.join(RUTA_AUX_OD, nombre)
+                    with open(ruta_f, "rb") as f:
+                        buf = _io.BytesIO(f.read())
+                    buf.name = nombre
+                    cargados_od.append(buf)
+                st.session_state["puentes_auxiliares"] = cargados_od
+                st.success(f"✅ {len(cargados_od)} auxiliar(es) cargados desde OneDrive.")
+                st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error al cargar desde OneDrive: {str(e)}")
+
+    st.markdown("**⬆️ O selecciónalos manualmente:**")
     archivos = st.file_uploader(
         "Selecciona los auxiliares (.xlsx)",
         type=["xlsx"],
