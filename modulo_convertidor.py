@@ -540,34 +540,38 @@ def _nombre_bancolombia(nombre_archivo, fecha_datos):
 
 
 def _parsear_pdf_bancolombia(archivo):
-    """Parsea el PDF de extracto Bancolombia y retorna dict con registros."""
+    """
+    Parsea el PDF de extracto Bancolombia usando coordenadas X de columna
+    para separar correctamente DESCRIPCIÓN y SUCURSAL/CANAL.
+    Maneja filas multilínea (NEQUI con nombre partido en dos líneas).
+    """
     import pdfplumber
     import re
 
-    RE_VALOR = re.compile(r'(-?[\d,]+\.\d{2})$')
-    RE_FECHA = re.compile(r'^(\d{4}/\d{2}/\d{2})\s+')
-    RE_REFS  = re.compile(r'\s+(\d{7,15})\s+(\d{7,15})\s*$')
-    RE_REF1  = re.compile(r'\s+(\d{7,15})\s*$')
-    RE_ORPHAN = re.compile(r'^\d{3,5}$')  # líneas sueltas de 3-5 dígitos (teléfono NEQUI)
+    # Límites de columna en puntos PDF (calibrados con el extracto Bancolombia)
+    COLS = {
+        'FECHA':          (23,  72),
+        'DESCRIPCION':    (72,  240),
+        'SUCURSAL_CANAL': (240, 329),
+        'REFERENCIA_1':   (329, 398),
+        'REFERENCIA_2':   (398, 467),
+        'DOCUMENTO':      (467, 526),
+        'VALOR':          (526, 620),
+    }
 
     empresa = num_cuenta = fecha = tipo_cuenta = ""
 
     archivo.seek(0)
     contenido = archivo.read()
 
+    # Extraer metadata del encabezado (texto plano primera página)
     with pdfplumber.open(io.BytesIO(contenido)) as pdf:
-        all_lines = []
-        for page in pdf.pages:
-            text = page.extract_text()
-            if text:
-                all_lines.extend(text.split('\n'))
-
-    # Extraer metadata del encabezado
-    for line in all_lines[:10]:
+        primer_texto = pdf.pages[0].extract_text() or ""
+    for line in primer_texto.split("\n")[:10]:
         m = re.search(r'Empresa:\s*(.+?)\s+Número de Cuenta:\s*(\d+)', line)
         if m:
-            empresa     = m.group(1).strip()
-            num_cuenta  = m.group(2).strip()
+            empresa    = m.group(1).strip()
+            num_cuenta = m.group(2).strip()
         m2 = re.search(r'Fecha y Hora Actual:\s*(\d{2}-\d{2}-\d{4})', line)
         if m2:
             fecha = m2.group(1)
@@ -575,73 +579,79 @@ def _parsear_pdf_bancolombia(archivo):
         if m3:
             tipo_cuenta = m3.group(1).strip()
 
-    # Parsear movimientos
-    header_found = False
+    # Parsear movimientos por coordenadas de columna
     registros = []
 
-    for line in all_lines:
-        line_s = line.strip()
+    with pdfplumber.open(io.BytesIO(contenido)) as pdf:
+        for page in pdf.pages:
+            words = page.extract_words(keep_blank_chars=False)
 
-        if 'FECHA' in line_s and 'DESCRIPCIÓN' in line_s and 'VALOR' in line_s:
-            header_found = True
-            continue
+            # Agrupar palabras por fila (tolerancia 3 pts)
+            rows = {}
+            for w in words:
+                row_key = round(w['top'] / 3) * 3
+                if row_key not in rows:
+                    rows[row_key] = []
+                rows[row_key].append(w)
 
-        if not header_found or not line_s:
-            continue
-        if line_s.startswith('Página') or line_s.startswith('Saldo'):
-            continue
-        if RE_ORPHAN.match(line_s):
-            continue  # línea suelta de número de NEQUI
+            pending = None
 
-        if not RE_FECHA.match(line_s):
-            continue
+            for row_key in sorted(rows.keys()):
+                row_words = rows[row_key]
 
-        # Extraer fecha
-        m_f = RE_FECHA.match(line_s)
-        fecha_mov = m_f.group(1).replace('/', '-')
-        resto = line_s[m_f.end():]
+                def get_col(col_range):
+                    ws = [w for w in row_words
+                          if col_range[0] <= w['x0'] < col_range[1]]
+                    return ' '.join(w['text'] for w in sorted(ws, key=lambda x: x['x0']))
 
-        # Extraer valor
-        m_v = RE_VALOR.search(resto)
-        if not m_v:
-            continue
-        valor = float(m_v.group(1).replace(',', ''))
-        resto = resto[:m_v.start()].strip()
+                fecha_text = get_col(COLS['FECHA'])
 
-        # Extraer referencias
-        ref1 = ref2 = ''
-        m_r2 = RE_REFS.search(resto)
-        if m_r2:
-            ref1  = m_r2.group(1)
-            ref2  = m_r2.group(2)
-            resto = resto[:m_r2.start()].strip()
-        else:
-            m_r1 = RE_REF1.search(resto)
-            if m_r1:
-                ref1  = m_r1.group(1)
-                resto = resto[:m_r1.start()].strip()
+                if re.match(r'\d{4}/\d{2}/\d{2}', fecha_text):
+                    # Guardar pendiente anterior
+                    if pending:
+                        registros.append(pending)
 
-        # Separar descripcion y sucursal/canal
-        partes = re.split(r'\s{2,}', resto, maxsplit=1)
-        descripcion = partes[0].strip()
-        sucursal    = partes[1].strip() if len(partes) > 1 else ''
+                    valor_str = get_col(COLS['VALOR'])
+                    try:
+                        valor = float(valor_str.replace(',', ''))
+                    except Exception:
+                        pending = None
+                        continue
 
-        registros.append({
-            'FECHA':           fecha_mov,
-            'DESCRIPCION':     descripcion,
-            'SUCURSAL/CANAL':  sucursal,
-            'REFERENCIA 1':    ref1,
-            'REFERENCIA 2':    ref2,
-            'DOCUMENTO':       '',
-            'VALOR':           valor,
-        })
+                    pending = {
+                        'FECHA':          fecha_text.replace('/', '-'),
+                        'DESCRIPCION':    get_col(COLS['DESCRIPCION']),
+                        'SUCURSAL/CANAL': get_col(COLS['SUCURSAL_CANAL']),
+                        'REFERENCIA 1':   get_col(COLS['REFERENCIA_1']),
+                        'REFERENCIA 2':   get_col(COLS['REFERENCIA_2']),
+                        'DOCUMENTO':      get_col(COLS['DOCUMENTO']),
+                        'VALOR':          valor,
+                    }
+                elif pending:
+                    # Línea de continuación (ej: número NEQUI partido)
+                    extra = ' '.join(w['text'] for w in row_words).strip()
+                    if extra and not extra.startswith('Página') and not extra.startswith('Saldo'):
+                        if re.match(r'^\d{4}$', extra):
+                            # Sufijo numérico NEQUI → agregar a REF1
+                            if pending['REFERENCIA 1']:
+                                pending['REFERENCIA 1'] += ' ' + extra
+                        else:
+                            # Continuación de nombre → agregar a REF1
+                            if pending['REFERENCIA 1']:
+                                pending['REFERENCIA 1'] += ' ' + extra
+                            else:
+                                pending['REFERENCIA 1'] = extra
+
+            if pending:
+                registros.append(pending)
+                pending = None
 
     return {
-        "empresa":    empresa,
-        "num_cuenta": num_cuenta,
-        "fecha":      fecha,
+        "empresa":     empresa,
+        "num_cuenta":  num_cuenta,
+        "fecha":       fecha,
         "tipo_cuenta": tipo_cuenta,
-        "registros":  registros,
+        "registros":   registros,
     }
 
 
