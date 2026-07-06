@@ -204,6 +204,26 @@ def render_carga_archivos():
     except ImportError:
         pass
 
+    # ── Carga automática desde OneDrive local ────────────────────────────────────
+    RUTA_ONEDRIVE = (
+        "C:\\Users\\ASUS\\OneDrive - SUPRECREDITO SAS\\"
+        "Departamento administrativo y financiero - LIBRO DE TRABAJO\\"
+        "LIBRO BANCOS 2025.xlsx"
+    )
+    if st.button("📂 Cargar desde OneDrive", type="primary",
+                 use_container_width=True, key="btn_onedrive"):
+        try:
+            import io as _io
+            with open(RUTA_ONEDRIVE, "rb") as f:
+                contenido = f.read()
+            archivo_od      = _io.BytesIO(contenido)
+            archivo_od.name = "LIBRO BANCOS 2025.xlsx"
+            st.session_state.archivo_libro = archivo_od
+            st.success("✅ Libro de Banco cargado desde OneDrive automáticamente.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ No se pudo cargar: {str(e)}")
+
     st.markdown("**⬆️ O súbelo manualmente:**")
     archivo_libro = st.file_uploader(
         "Subir libro de banco",
