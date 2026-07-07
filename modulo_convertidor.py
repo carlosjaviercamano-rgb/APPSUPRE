@@ -541,14 +541,12 @@ def _nombre_bancolombia(nombre_archivo, fecha_datos):
 
 def _parsear_pdf_bancolombia(archivo):
     """
-    Parsea el PDF de extracto Bancolombia usando coordenadas X de columna
-    para separar correctamente DESCRIPCIÓN y SUCURSAL/CANAL.
-    Maneja filas multilínea (NEQUI con nombre partido en dos líneas).
+    Parsea el PDF de extracto Bancolombia usando coordenadas X de columna.
+    Maneja correctamente filas de 1, 2 o 3 líneas (incluye NEQUI multilínea).
     """
     import pdfplumber
     import re
 
-    # Límites de columna en puntos PDF (calibrados con el extracto Bancolombia)
     COLS = {
         'FECHA':          (23,  72),
         'DESCRIPCION':    (72,  240),
@@ -559,92 +557,110 @@ def _parsear_pdf_bancolombia(archivo):
         'VALOR':          (526, 620),
     }
 
+    RE_FECHA  = re.compile(r"^\d{4}/\d{2}/\d{2}$")
+    RE_VALOR  = re.compile(r"^-?[\d,]+\.\d{2}$")
+    RE_PAGINA = re.compile(r"^P[áa]gina\s+\d+", re.IGNORECASE)
+
     empresa = num_cuenta = fecha = tipo_cuenta = ""
 
     archivo.seek(0)
     contenido = archivo.read()
 
-    # Extraer metadata del encabezado (texto plano primera página)
+    # Metadata del encabezado
     with pdfplumber.open(io.BytesIO(contenido)) as pdf:
         primer_texto = pdf.pages[0].extract_text() or ""
     for line in primer_texto.split("\n")[:10]:
-        m = re.search(r'Empresa:\s*(.+?)\s+Número de Cuenta:\s*(\d+)', line)
+        m = re.search(r"Empresa:\s*(.+?)\s+N[úu]mero de Cuenta:\s*(\d+)", line)
         if m:
-            empresa    = m.group(1).strip()
-            num_cuenta = m.group(2).strip()
-        m2 = re.search(r'Fecha y Hora Actual:\s*(\d{2}-\d{2}-\d{4})', line)
-        if m2:
-            fecha = m2.group(1)
-        m3 = re.search(r'Tipo de cuenta:\s*(.+?)(?:\s{2}|$)', line)
-        if m3:
-            tipo_cuenta = m3.group(1).strip()
+            empresa = m.group(1).strip(); num_cuenta = m.group(2).strip()
+        m2 = re.search(r"Fecha y Hora Actual:\s*(\d{2}-\d{2}-\d{4})", line)
+        if m2: fecha = m2.group(1)
+        m3 = re.search(r"Tipo de cuenta:\s*(.+?)(?:\s{2}|$)", line)
+        if m3: tipo_cuenta = m3.group(1).strip()
 
-    # Parsear movimientos por coordenadas de columna
     registros = []
 
     with pdfplumber.open(io.BytesIO(contenido)) as pdf:
         for page in pdf.pages:
             words = page.extract_words(keep_blank_chars=False)
 
-            # Agrupar palabras por fila (tolerancia 3 pts)
+            # Agrupar por fila (tolerancia 3 pts)
             rows = {}
             for w in words:
-                row_key = round(w['top'] / 3) * 3
-                if row_key not in rows:
-                    rows[row_key] = []
-                rows[row_key].append(w)
+                rk = round(w["top"] / 3) * 3
+                if rk not in rows: rows[rk] = []
+                rows[rk].append(w)
 
             pending = None
 
-            for row_key in sorted(rows.keys()):
-                row_words = rows[row_key]
+            for rk in sorted(rows.keys()):
+                rw = rows[rk]
 
-                def get_col(col_range):
-                    ws = [w for w in row_words
-                          if col_range[0] <= w['x0'] < col_range[1]]
-                    return ' '.join(w['text'] for w in sorted(ws, key=lambda x: x['x0']))
+                def gc(col_range):
+                    ws = [w for w in rw if col_range[0] <= w["x0"] < col_range[1]]
+                    return " ".join(w["text"] for w in sorted(ws, key=lambda x: x["x0"]))
 
-                fecha_text = get_col(COLS['FECHA'])
+                fecha_text = gc(COLS["FECHA"])
+                valor_text = gc(COLS["VALOR"])
+                full_line  = " ".join(w["text"] for w in sorted(rw, key=lambda x: x["x0"]))
 
-                if re.match(r'\d{4}/\d{2}/\d{2}', fecha_text):
-                    # Guardar pendiente anterior
+                # Saltar encabezados y pies de página
+                if RE_PAGINA.match(full_line.strip()) or "Saldo" in full_line:
+                    continue
+
+                if RE_FECHA.match(fecha_text.strip()):
+                    # Nueva fila — guardar pendiente anterior
                     if pending:
+                        if not pending["_ok"]:
+                            pending["VALOR"] = 0.0
                         registros.append(pending)
 
-                    valor_str = get_col(COLS['VALOR'])
-                    try:
-                        valor = float(valor_str.replace(',', ''))
-                    except Exception:
-                        pending = None
-                        continue
+                    # ¿Esta fila ya trae el valor?
+                    valor = None
+                    vt = valor_text.replace(",", "")
+                    if RE_VALOR.match(vt.replace("-", "", 1)):
+                        try: valor = float(valor_text.replace(",", ""))
+                        except: pass
 
                     pending = {
-                        'FECHA':          fecha_text.replace('/', '-'),
-                        'DESCRIPCION':    get_col(COLS['DESCRIPCION']),
-                        'SUCURSAL/CANAL': get_col(COLS['SUCURSAL_CANAL']),
-                        'REFERENCIA 1':   get_col(COLS['REFERENCIA_1']),
-                        'REFERENCIA 2':   get_col(COLS['REFERENCIA_2']),
-                        'DOCUMENTO':      get_col(COLS['DOCUMENTO']),
-                        'VALOR':          valor,
+                        "FECHA":          fecha_text.replace("/", "-"),
+                        "DESCRIPCION":    gc(COLS["DESCRIPCION"]),
+                        "SUCURSAL/CANAL": gc(COLS["SUCURSAL_CANAL"]),
+                        "REFERENCIA 1":   gc(COLS["REFERENCIA_1"]),
+                        "REFERENCIA 2":   gc(COLS["REFERENCIA_2"]),
+                        "DOCUMENTO":      gc(COLS["DOCUMENTO"]),
+                        "VALOR":          valor,
+                        "_ok":            valor is not None,
                     }
-                elif pending:
-                    # Línea de continuación (ej: número NEQUI partido)
-                    extra = ' '.join(w['text'] for w in row_words).strip()
-                    if extra and not extra.startswith('Página') and not extra.startswith('Saldo'):
-                        if re.match(r'^\d{4}$', extra):
-                            # Sufijo numérico NEQUI → agregar a REF1
-                            if pending['REFERENCIA 1']:
-                                pending['REFERENCIA 1'] += ' ' + extra
-                        else:
-                            # Continuación de nombre → agregar a REF1
-                            if pending['REFERENCIA 1']:
-                                pending['REFERENCIA 1'] += ' ' + extra
-                            else:
-                                pending['REFERENCIA 1'] = extra
+
+                elif pending and not pending["_ok"]:
+                    # Línea de continuación — buscar valor
+                    valor_cont = gc(COLS["VALOR"])
+                    vc = valor_cont.replace(",", "")
+                    if RE_VALOR.match(vc.replace("-", "", 1)):
+                        try:
+                            pending["VALOR"] = float(valor_cont.replace(",", ""))
+                            pending["_ok"]   = True
+                        except: pass
+
+                    # Acumular REF1, DESCRIPCION, SUCURSAL si faltan
+                    ref_cont = gc(COLS["REFERENCIA_1"])
+                    if ref_cont:
+                        pending["REFERENCIA 1"] = (pending["REFERENCIA 1"] + " " + ref_cont).strip()
+                    desc_cont = gc(COLS["DESCRIPCION"])
+                    if desc_cont and not pending["DESCRIPCION"]:
+                        pending["DESCRIPCION"] = desc_cont
+                    suc_cont = gc(COLS["SUCURSAL_CANAL"])
+                    if suc_cont and not pending["SUCURSAL/CANAL"]:
+                        pending["SUCURSAL/CANAL"] = suc_cont
 
             if pending:
+                if not pending["_ok"]: pending["VALOR"] = 0.0
                 registros.append(pending)
                 pending = None
+
+    for r in registros:
+        r.pop("_ok", None)
 
     return {
         "empresa":     empresa,
@@ -655,87 +671,18 @@ def _parsear_pdf_bancolombia(archivo):
     }
 
 
-def _generar_excel_bancolombia(datos):
-    """Genera el Excel con todos los movimientos en una sola hoja."""
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Movimientos"
-
-    font_base   = Font(name="Arial", size=10)
-    font_bold   = Font(name="Arial", size=10, bold=True)
-    font_titulo = Font(name="Arial", size=12, bold=True)
-    font_header = Font(name="Arial", size=10, bold=True, color="FFFFFF")
-    fill_header = PatternFill("solid", fgColor="1F4E78")
-    fill_total  = PatternFill("solid", fgColor="D9E1F2")
-    align_c     = Alignment(horizontal="center", vertical="center")
-    align_l     = Alignment(horizontal="left",   vertical="center")
-    thin        = Side(style="thin", color="AAAAAA")
-    borde       = Border(left=thin, right=thin, top=thin, bottom=thin)
-
-    # Título fila 1
-    ws.merge_cells("A1:G1")
-    c = ws["A1"]
-    c.value     = (f"{datos['empresa']} | Cuenta: {datos['num_cuenta']} "
-                   f"({datos['tipo_cuenta']}) | Fecha: {datos['fecha']}")
-    c.font      = font_titulo
-    c.alignment = align_l
-
-    # Encabezados fila 3
-    cols   = ["FECHA", "DESCRIPCIÓN", "SUCURSAL/CANAL", "REFERENCIA 1",
-              "REFERENCIA 2", "DOCUMENTO", "VALOR"]
-    anchos = [14, 45, 25, 16, 16, 14, 16]
-    for ci, (h, w) in enumerate(zip(cols, anchos), 1):
-        cell = ws.cell(row=3, column=ci, value=h)
-        cell.font      = font_header
-        cell.fill      = fill_header
-        cell.alignment = align_c
-        cell.border    = borde
-        ws.column_dimensions[get_column_letter(ci)].width = w
-
-    # Datos desde fila 4
-    for ri, reg in enumerate(datos["registros"], 4):
-        vals = [
-            reg["FECHA"],
-            reg["DESCRIPCION"],
-            reg["SUCURSAL/CANAL"],
-            reg["REFERENCIA 1"],
-            reg["REFERENCIA 2"],
-            reg["DOCUMENTO"],
-            reg["VALOR"],
-        ]
-        for ci, val in enumerate(vals, 1):
-            cell = ws.cell(row=ri, column=ci, value=val)
-            cell.font      = font_base
-            cell.border    = borde
-            cell.alignment = align_c if ci != 2 else align_l
-            if ci == 7:
-                cell.number_format = "General"
-
-    # Fila total
-    n   = len(datos["registros"])
-    ft  = n + 5
-    ws.cell(row=ft, column=1, value="TOTAL MOVIMIENTOS").font  = font_bold
-    ws.cell(row=ft, column=1).fill                             = fill_total
-    ws.cell(row=ft, column=1).border                           = borde
-    ws.cell(row=ft, column=7,
-            value=f"=SUM(G4:G{n+3})").number_format            = "General"
-    ws.cell(row=ft, column=7).font                             = font_bold
-    ws.cell(row=ft, column=7).fill                             = fill_total
-    ws.cell(row=ft, column=7).border                           = borde
-    ws.cell(row=ft, column=2,
-            value=f"=COUNTA(A4:A{n+3})").number_format         = "General"
-    ws.cell(row=ft, column=2).font                             = font_bold
-    ws.cell(row=ft, column=2).fill                             = fill_total
-    ws.cell(row=ft, column=2).border                           = borde
-    for ci in range(3, 8):
-        c2 = ws.cell(row=ft, column=ci)
-        if ci not in (7, 2):
-            c2.fill   = fill_total
-            c2.border = borde
-
-    ws.freeze_panes = "A4"
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf.getvalue()
+def _nombre_bancolombia(nombre_archivo, fecha_datos):
+    """
+    ZIP_16600000605_000000901347233_20260704_08120932.pdf
+    → BANCOLOMBIA0605_20260704.xlsx
+    Toma los últimos 4 dígitos del segundo segmento y la fecha del tercer segmento.
+    """
+    import re
+    nombre = nombre_archivo.replace(".pdf", "").replace(".PDF", "")
+    partes = nombre.split("_")
+    # partes[0]=ZIP, partes[1]=num_cuenta, partes[2]=nit, partes[3]=fecha
+    if len(partes) >= 4:
+        num_cuenta = partes[1][-4:]   # últimos 4 dígitos
+        fecha_arch = partes[3][:8]    # YYYYMMDD
+        return f"BANCOLOMBIA{num_cuenta}_{fecha_arch}.xlsx"
+    return f"BANCOLOMBIA_{nombre}.xlsx"
