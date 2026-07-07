@@ -686,3 +686,92 @@ def _nombre_bancolombia(nombre_archivo, fecha_datos):
         fecha_arch = partes[3][:8]    # YYYYMMDD
         return f"BANCOLOMBIA{num_cuenta}_{fecha_arch}.xlsx"
     return f"BANCOLOMBIA_{nombre}.xlsx"
+
+
+
+
+
+def _generar_excel_bancolombia(datos):
+    """Genera el Excel con todos los movimientos en una sola hoja."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Movimientos"
+
+    font_base   = Font(name="Arial", size=10)
+    font_bold   = Font(name="Arial", size=10, bold=True)
+    font_titulo = Font(name="Arial", size=12, bold=True)
+    font_header = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+    fill_header = PatternFill("solid", fgColor="1F4E78")
+    fill_total  = PatternFill("solid", fgColor="D9E1F2")
+    align_c     = Alignment(horizontal="center", vertical="center")
+    align_l     = Alignment(horizontal="left",   vertical="center")
+    thin        = Side(style="thin", color="AAAAAA")
+    borde       = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    # Título fila 1
+    ws.merge_cells("A1:G1")
+    c = ws["A1"]
+    c.value     = (f"{datos['empresa']} | Cuenta: {datos['num_cuenta']} "
+                   f"({datos['tipo_cuenta']}) | Fecha: {datos['fecha']}")
+    c.font      = font_titulo
+    c.alignment = align_l
+
+    # Encabezados fila 3
+    cols   = ["FECHA", "DESCRIPCIÓN", "SUCURSAL/CANAL", "REFERENCIA 1",
+              "REFERENCIA 2", "DOCUMENTO", "VALOR"]
+    anchos = [14, 45, 25, 16, 16, 14, 16]
+    for ci, (h, w) in enumerate(zip(cols, anchos), 1):
+        cell = ws.cell(row=3, column=ci, value=h)
+        cell.font      = font_header
+        cell.fill      = fill_header
+        cell.alignment = align_c
+        cell.border    = borde
+        ws.column_dimensions[get_column_letter(ci)].width = w
+
+    # Datos desde fila 4
+    for ri, reg in enumerate(datos["registros"], 4):
+        vals = [
+            reg["FECHA"],
+            reg["DESCRIPCION"],
+            reg["SUCURSAL/CANAL"],
+            reg["REFERENCIA 1"],
+            reg["REFERENCIA 2"],
+            reg["DOCUMENTO"],
+            reg["VALOR"],
+        ]
+        for ci, val in enumerate(vals, 1):
+            cell = ws.cell(row=ri, column=ci, value=val)
+            cell.font      = font_base
+            cell.border    = borde
+            cell.alignment = align_c if ci != 2 else align_l
+            if ci == 7:
+                cell.number_format = "General"
+
+    # Fila total
+    n  = len(datos["registros"])
+    ft = n + 5
+    ws.cell(row=ft, column=1, value="TOTAL MOVIMIENTOS").font  = font_bold
+    ws.cell(row=ft, column=1).fill                             = fill_total
+    ws.cell(row=ft, column=1).border                           = borde
+    ws.cell(row=ft, column=7,
+            value=f"=SUM(G4:G{n+3})").number_format            = "General"
+    ws.cell(row=ft, column=7).font                             = font_bold
+    ws.cell(row=ft, column=7).fill                             = fill_total
+    ws.cell(row=ft, column=7).border                           = borde
+    ws.cell(row=ft, column=2,
+            value=f"=COUNTA(A4:A{n+3})").number_format         = "General"
+    ws.cell(row=ft, column=2).font                             = font_bold
+    ws.cell(row=ft, column=2).fill                             = fill_total
+    ws.cell(row=ft, column=2).border                           = borde
+    for ci in range(3, 8):
+        c2 = ws.cell(row=ft, column=ci)
+        if ci not in (7, 2):
+            c2.fill   = fill_total
+            c2.border = borde
+
+    ws.freeze_panes = "A4"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
