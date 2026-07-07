@@ -3,6 +3,7 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
 from datetime import datetime
 import io
+import os
 import streamlit as st
 
 # Configuración por entidad
@@ -21,7 +22,7 @@ CUENTA_CREDITO    = "141299011"
 CODIGO_CENTRO     = "102"
 
 
-def crear_cargue_banco(df_movimientos, tipo_pago="bancarios"):
+def crear_cargue_banco(df_movimientos, config=None, tipo_pago="bancarios"):
     """
     Genera archivos de cargue banco (Items) con débitos y créditos.
     Un archivo por fecha de movimiento.
@@ -36,6 +37,8 @@ def crear_cargue_banco(df_movimientos, tipo_pago="bancarios"):
     hora_str = datetime.now().strftime("%H_%M_%S")
     archivos_generados = []
 
+    ruta_auto = config.get("ruta_cargue_banco", "") if config else ""
+
     for fecha in sorted(fechas_unicas):
         df_fecha = df[df["FECHA_NORM"] == fecha].copy().reset_index(drop=True)
         if df_fecha.empty:
@@ -44,6 +47,20 @@ def crear_cargue_banco(df_movimientos, tipo_pago="bancarios"):
         fecha_str = pd.Timestamp(fecha).strftime("%d_%m_%Y")
         nombre    = f"CARGUE_BANCO_{fecha_str}_{hora_str}.xlsx"
         buffer    = _generar_excel(df_fecha)
+
+        # ── Guardar automáticamente en ruta configurada ──────────────────
+        if ruta_auto:
+            try:
+                os.makedirs(ruta_auto, exist_ok=True)
+                ruta_completa = os.path.join(ruta_auto, nombre)
+                buffer.seek(0)
+                with open(ruta_completa, "wb") as f:
+                    f.write(buffer.read())
+                st.success(f"💾 Guardado en: {ruta_completa}")
+            except Exception as e:
+                st.warning(f"⚠️ No se pudo guardar automáticamente: {str(e)}")
+            buffer.seek(0)
+
         archivos_generados.append({
             "nombre": nombre,
             "buffer": buffer,

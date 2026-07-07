@@ -225,6 +225,8 @@ def cargar_config():
         "ruta_conc_occidente":   r"C:\Users\ASUS\Desktop\BANCOS\MOVIMIENTOS BANCARIOS\OCCIDENTE\\",
         "ruta_conc_bogota":      r"C:\Users\ASUS\Desktop\BANCOS\MOVIMIENTOS BANCARIOS\BOGOTA\\",
         "ruta_conc_puentes":     r"C:\Users\ASUS\Desktop\BANCOS\MOVIMIENTOS BANCARIOS\PUENTES\\",
+        "ruta_cargue_banco":     r"C:\Users\ASUS\Desktop\BANCOS\CARGUE BANCOS\\",
+        "ruta_tabla_pagos":      r"C:\Users\ASUS\Desktop\BANCOS\MOVIMIENTOS DEL MES\\",
     }
     if os.path.exists(CONFIG_PATH):
         try:
@@ -345,6 +347,20 @@ def modulo_configuracion():
         cfg["ruta_conc_bogota"]      = st.text_input("Bogotá",      value=cfg["ruta_conc_bogota"])
         st.markdown('</div>', unsafe_allow_html=True)
 
+        st.markdown('<div class="config-card"><h4>📁 Ruta Cargue Banco</h4>', unsafe_allow_html=True)
+        cfg["ruta_cargue_banco"] = st.text_input(
+            "Carpeta de cargue banco",
+            value=cfg["ruta_cargue_banco"]
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="config-card"><h4>📁 Ruta Tabla de Pagos</h4>', unsafe_allow_html=True)
+        cfg["ruta_tabla_pagos"] = st.text_input(
+            "Carpeta de movimientos del mes",
+            value=cfg["ruta_tabla_pagos"]
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+
     with col2:
         st.markdown('<div class="config-card"><h4>📁 Ruta Compensaciones</h4>', unsafe_allow_html=True)
         cfg["ruta_compensaciones"] = st.text_input(
@@ -366,7 +382,7 @@ def modulo_configuracion():
         st.markdown(f"{'✅' if libro_ok else '⚠️'} Nombre del libro: {'configurado' if libro_ok else 'pendiente'}")
         st.markdown(f"{'✅' if url_ok else '⚠️'} URL SharePoint: {'configurada' if url_ok else 'pendiente'}")
         rutas_planos = ["ruta_movicap","ruta_suprecartera","ruta_suprecredito","ruta_tucredito","ruta_compensaciones"]
-        rutas_conc   = ["ruta_conc_bancolombia","ruta_conc_davivienda","ruta_conc_occidente","ruta_conc_bogota","ruta_conc_puentes"]
+        rutas_conc   = ["ruta_conc_bancolombia","ruta_conc_davivienda","ruta_conc_occidente","ruta_conc_bogota","ruta_conc_puentes","ruta_cargue_banco","ruta_tabla_pagos"]
         rutas_ok  = all(cfg.get(r) for r in rutas_planos)
         conc_ok   = all(cfg.get(r) for r in rutas_conc)
         st.markdown(f"{'✅' if rutas_ok  else '⚠️'} Rutas de planos: {'configuradas' if rutas_ok else 'revisar'}")

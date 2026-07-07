@@ -132,7 +132,8 @@ def render_generar():
         with st.spinner("Generando archivos..."):
             try:
                 resultado = crear_cargue_banco(
-                    st.session_state["df_cargue_banco"]
+                    st.session_state["df_cargue_banco"],
+                    st.session_state.config
                 )
                 st.success(f"✅ {resultado}")
             except Exception as e:
