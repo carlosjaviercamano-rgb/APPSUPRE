@@ -575,7 +575,7 @@ def _mostrar_reemplazo_cedulas():
                 with col_c:
                     company_sel = st.selectbox(
                         "Company",
-                        ["Suprecartera", "Suprecredito", "Movicap", "TuCredito"],
+                        ["Suprecartera", "Suprecreditos", "Movicap", "TuCredito"],
                         key=f"company_{cedula}_{i}"
                     )
                 with col_f:
@@ -821,6 +821,8 @@ def render_generar_archivos():
         ("cedulas_excluidas_planos", []),
         ("cedulas_solo_cuota", []),
         ("cedulas_inmovilizadas", {}),
+        ("df_inmov_cruce", None),
+        ("inmov_cruce_stats", {}),
     ]:
         if key not in st.session_state:
             st.session_state[key] = default
@@ -937,6 +939,79 @@ def render_generar_archivos():
                 st.metric("Valor cuota (CashReceipt)",
                           f"${valor_cuota:,.0f}",
                           delta=f"-${suma_servicios:,.0f}" if suma_servicios > 0 else None)
+
+    st.markdown("---")
+
+    # ── 4. Validación: cargar archivo de cédulas inmovilizadas ───────────
+    st.markdown("#### 📋 Validar cédulas inmovilizadas (archivo)")
+    st.caption("Sube el archivo de cédulas inmovilizadas (columna A: Cédula titular, columna B: Valor). "
+               "Se cruzará contra la tabla de Alistar Información para validar antes de generar planos.")
+
+    archivo_inmov = st.file_uploader(
+        "Archivo de cédulas inmovilizadas",
+        type=["xlsx", "xls"],
+        key="archivo_cedulas_inmov_upload",
+        label_visibility="collapsed"
+    )
+
+    if st.button("🔍 Cruzar cédulas", key="btn_cruzar_inmov", use_container_width=True):
+        if archivo_inmov is None:
+            st.warning("⚠️ Primero sube el archivo de cédulas inmovilizadas.")
+        else:
+            try:
+                df_inmov_arch = pd.read_excel(archivo_inmov, header=0)
+                col_ced = df_inmov_arch.columns[0]
+                col_val = df_inmov_arch.columns[1] if df_inmov_arch.shape[1] > 1 else None
+
+                df_inmov_arch = df_inmov_arch.rename(columns={col_ced: "CEDULA_TITULAR"})
+                if col_val:
+                    df_inmov_arch = df_inmov_arch.rename(columns={col_val: "VALOR"})
+                else:
+                    df_inmov_arch["VALOR"] = 0
+
+                df_inmov_arch["CEDULA_TITULAR"] = df_inmov_arch["CEDULA_TITULAR"].astype(str).str.strip()
+                df_inmov_arch = df_inmov_arch[df_inmov_arch["CEDULA_TITULAR"].notna() &
+                                               (df_inmov_arch["CEDULA_TITULAR"] != "") &
+                                               (df_inmov_arch["CEDULA_TITULAR"] != "nan")]
+
+                df_s1 = st.session_state.df_sheet1.copy()
+                df_s1["IDEN_STR"] = df_s1["IDEN"].astype(str).str.strip()
+
+                cedulas_archivo = set(df_inmov_arch["CEDULA_TITULAR"])
+                df_encontradas = df_s1[df_s1["IDEN_STR"].isin(cedulas_archivo)].copy()
+
+                # Traer el valor del archivo a cada fila encontrada
+                valores_map = dict(zip(df_inmov_arch["CEDULA_TITULAR"], df_inmov_arch["VALOR"]))
+                df_encontradas["VALOR_ARCHIVO"] = df_encontradas["IDEN_STR"].map(valores_map)
+
+                cols_mostrar = [c for c in ["IDEN_STR", "COMPANY", "NUM_FACTURA", "CUOTA", "VALOR_ARCHIVO"]
+                                if c in df_encontradas.columns]
+                df_resultado = df_encontradas[cols_mostrar].rename(columns={"IDEN_STR": "CEDULA"})
+
+                st.session_state["df_inmov_cruce"] = df_resultado
+                st.session_state["inmov_cruce_stats"] = {
+                    "total_archivo": len(cedulas_archivo),
+                    "encontradas":   df_resultado["CEDULA"].nunique() if not df_resultado.empty else 0,
+                }
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error al procesar el archivo: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+
+    if st.session_state.get("df_inmov_cruce") is not None:
+        stats = st.session_state.get("inmov_cruce_stats", {})
+        df_resultado = st.session_state["df_inmov_cruce"]
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Cédulas en archivo", stats.get("total_archivo", 0))
+        c2.metric("Encontradas", stats.get("encontradas", 0))
+        c3.metric("No encontradas", stats.get("total_archivo", 0) - stats.get("encontradas", 0))
+
+        if df_resultado.empty:
+            st.warning("⚠️ Ninguna cédula del archivo coincide con la tabla de Alistar Información.")
+        else:
+            st.dataframe(df_resultado, use_container_width=True)
 
     st.markdown("---")
 
@@ -1111,20 +1186,6 @@ def render_generar_archivos():
 
             from datetime import datetime as _dt
             nombre = f"TABLA_PAGOS_{_dt.now().strftime('%d_%m_%Y_%H_%M_%S')}.xlsx"
-
-            # ── Guardar automáticamente en ruta configurada ──────────────
-            ruta_auto = st.session_state.config.get("ruta_tabla_pagos", "")
-            if ruta_auto:
-                try:
-                    os.makedirs(ruta_auto, exist_ok=True)
-                    ruta_completa = os.path.join(ruta_auto, nombre)
-                    buffer.seek(0)
-                    with open(ruta_completa, "wb") as f:
-                        f.write(buffer.read())
-                    st.success(f"💾 Guardado en: {ruta_completa}")
-                except Exception as e:
-                    st.warning(f"⚠️ No se pudo guardar automáticamente: {str(e)}")
-                buffer.seek(0)
 
             st.download_button(
                 label="⬇️  Descargar tabla de pagos",
