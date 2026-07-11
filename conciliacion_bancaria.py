@@ -349,14 +349,15 @@ def conciliar(df_banco, df_aux):
             if not disponibles:
                 continue
 
-            # Elegir el candidato con fecha más cercana al auxiliar
-            # Si no hay fecha auxiliar válida, tomar el primero disponible
-            if fec_aux is not None and pd.notna(fec_aux):
-                mejor = min(disponibles,
-                            key=lambda x: abs((pd.to_datetime(x[0]) - fec_aux).days)
-                            if x[0] is not None and pd.notna(x[0]) else 9999)
-            else:
-                mejor = disponibles[0]
+            # Elegir siempre el candidato con la fecha MÁS ANTIGUA.
+            # (Cuando el mismo valor se repite varias veces en el banco y
+            # solo hay un registro en el auxiliar para cruzar, se concilia
+            # el movimiento más antiguo y el(los) más reciente(s) quedan
+            # pendientes -> aparecen en la hoja de conciliación).
+            mejor = min(
+                disponibles,
+                key=lambda x: x[0] if x[0] is not None and pd.notna(x[0]) else pd.Timestamp.max
+            )
 
             fec_ganadora, ib_ganador = mejor
             pares.append((ib_ganador, ia))
