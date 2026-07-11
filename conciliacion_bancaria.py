@@ -250,6 +250,10 @@ def filtrar_datos(archivos_aux, archivo_extracto, empresa, codigo_cuenta, mes_id
     if df_banco.empty:
         raise ValueError("El extracto bancario no tiene movimientos válidos.")
 
+    # ── Ordenar de más antiguo a más reciente ───────────────────────────
+    df_banco["FECHA"] = pd.to_datetime(df_banco["FECHA"], errors="coerce")
+    df_banco = df_banco.sort_values("FECHA", kind="stable").reset_index(drop=True)
+
     resumen_filtro = {
         "n_banco": len(df_banco),
         "n_aux":   len(df_aux),
