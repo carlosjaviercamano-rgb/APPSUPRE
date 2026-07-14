@@ -505,7 +505,7 @@ def _render_conciliar_bancaria():
                        f"Reclasif: {resumen['n_reclasif']}")
 
         if st.session_state.get("banc_excel"):
-            from datetime import date, timedelta
+            from datetime import date, timedelta, datetime as _dt
             import calendar as _cal
             MESES_CB_LIST = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO",
                              "JULIO","AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"]
@@ -520,8 +520,9 @@ def _render_conciliar_bancaria():
                 ultimo_dia = _cal.monthrange(anio, mes_idx)[1]
                 fecha_ref  = date(anio, mes_idx, ultimo_dia)
             fecha_str = fecha_ref.strftime("%d_%m_%Y")
+            hora_str  = _dt.now().strftime("%H_%M_%S")
             cuenta_limpia = cuenta_nom.replace("/", "-").replace("\\", "-").strip()
-            nombre_archivo = f"CONCILIACION_{cuenta_limpia}_{fecha_str}.xlsx"
+            nombre_archivo = f"CONCILIACION_{cuenta_limpia}_{fecha_str}_{hora_str}.xlsx"
 
             cfg = st.session_state.get("config", {})
             EMPRESAS_OCCIDENTE = {
@@ -874,7 +875,7 @@ def _mostrar_resultado_puentes(df, codigo_cuenta):
     buf.seek(0)
     st.session_state["puentes_resultado_bytes"] = buf.getvalue()
 
-    from datetime import date, timedelta
+    from datetime import date, timedelta, datetime as _dt
     import calendar as _cal
     MESES_P_LIST = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO",
                     "JULIO","AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"]
@@ -890,7 +891,8 @@ def _mostrar_resultado_puentes(df, codigo_cuenta):
         ultimo_dia_p = _cal.monthrange(anio_p, mes_idx_p)[1]
         fecha_ref_p  = date(anio_p, mes_idx_p, ultimo_dia_p)
     fecha_str = fecha_ref_p.strftime("%d_%m_%Y")
-    nombre_archivo_puentes = f"CONCILIACION_{codigo_cuenta}_{fecha_str}.xlsx"
+    hora_str_p = _dt.now().strftime("%H_%M_%S")
+    nombre_archivo_puentes = f"CONCILIACION_{codigo_cuenta}_{fecha_str}_{hora_str_p}.xlsx"
 
     cfg = st.session_state.get("config", {})
     ruta_auto_puentes = cfg.get("ruta_conc_puentes", "")
