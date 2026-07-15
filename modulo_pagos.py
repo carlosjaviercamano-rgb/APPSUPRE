@@ -1187,6 +1187,20 @@ def render_generar_archivos():
             from datetime import datetime as _dt
             nombre = f"TABLA_PAGOS_{_dt.now().strftime('%d_%m_%Y_%H_%M_%S')}.xlsx"
 
+            # ── Guardar automáticamente en ruta configurada ──────────────
+            ruta_auto = st.session_state.config.get("ruta_tabla_pagos", "")
+            if ruta_auto:
+                try:
+                    os.makedirs(ruta_auto, exist_ok=True)
+                    ruta_completa = os.path.join(ruta_auto, nombre)
+                    buffer.seek(0)
+                    with open(ruta_completa, "wb") as f:
+                        f.write(buffer.read())
+                    st.success(f"💾 Guardado en: {ruta_completa}")
+                except Exception as e:
+                    st.warning(f"⚠️ No se pudo guardar automáticamente: {str(e)}")
+                buffer.seek(0)
+
             st.download_button(
                 label="⬇️  Descargar tabla de pagos",
                 data=buffer,
