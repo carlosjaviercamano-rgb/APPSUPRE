@@ -575,7 +575,7 @@ def _mostrar_reemplazo_cedulas():
                 with col_c:
                     company_sel = st.selectbox(
                         "Company",
-                        ["Suprecartera", "Suprecreditos", "Movicap", "TuCredito"],
+                        ["Suprecartera", "Suprecredito", "Movicap", "TuCredito"],
                         key=f"company_{cedula}_{i}"
                     )
                 with col_f:
