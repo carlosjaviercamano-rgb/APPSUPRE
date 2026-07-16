@@ -269,22 +269,25 @@ def cargar_corresponsal(archivo):
 # EXTRACCIÓN CARGUE BANCO
 # ══════════════════════════════════════════════════════════════════════════
 
-# Valores a excluir en DAVIVIENDA columna G
+# Valores a excluir en DAVIVIENDA columna H (CONCEPTO)
 EXCLUIR_DAVIVIENDA = [
-    "AVES MARIA", "Redeban BreB", "PORTAL PYMES",
-    "BANSUP ESTABLECIMIEN", "Compras y Pagos PSE",
-    "Multiabonos", "BTA PROCESOS ESP."
+    "Redeban BreB", "BANSUP ESTABLECIMIEN",
+    "Compras y Pagos PSE", "Multiabonos", "BTA PROCESOS ESP."
 ]
+
+# Valores a excluir en DAVIVIENDA columna G (TIPOMOVIMIENTO)
+EXCLUIR_DAVIVIENDA_TIPOMOV = ["Nota Débito"]
 
 # Columnas del libro para cargue banco
 # BANCOLOMBIA: A=fecha, B=entidad, C=cedula, D=?, E=fra, F=?, G=?, H=valor
-# DAVIVIENDA:  A=fecha, B=entidad, C=cedula, D=?, E=fra, F=?, G=concepto
+# DAVIVIENDA:  A=fecha, B=entidad, C=cedula, D=?, E=fra, F=?, G=tipomovimiento, H=concepto, I=valor, J=fra
 
 def extraer_cargue_banco(archivo, fechas_filtro):
     """
     Extrae movimientos bancarios para Cargue Banco.
     BANCOLOMBIA: filtro fecha col A + col H > 0
-    DAVIVIENDA:  filtro fecha col A + col G no en exclusiones + col C vacía
+    DAVIVIENDA:  filtro fecha col A + col G (TIPOMOVIMIENTO) != Nota Débito
+                 + col H (CONCEPTO) no en exclusiones + col C vacía
     """
     if not fechas_filtro:
         raise ValueError("Debes seleccionar al menos una fecha.")
@@ -316,7 +319,8 @@ def extraer_cargue_banco(archivo, fechas_filtro):
             frames.append(df_out)
 
     # ── DAVIVIENDA ──────────────────────────────────────────────────────
-    # Columnas: A=0(FECHA) B=1(ENTIDAD) C=2(CEDULA) G=6(CONCEPTO) H=7(VALOR) I=8(FRA)
+    # Columnas: A=0(FECHA) B=1(ENTIDAD) C=2(CEDULA) G=6(TIPOMOVIMIENTO)
+    #           H=7(CONCEPTO) I=8(VALOR) J=9(FRA)
     df_davi = leer_hoja(archivo, "DAVIVIENDA SUPRECREDITO")
     if df_davi is not None and not df_davi.empty:
         df_davi.columns = [f"COL_{i}" for i in range(df_davi.shape[1])]
@@ -325,13 +329,19 @@ def extraer_cargue_banco(archivo, fechas_filtro):
         df_davi["COL_0"] = pd.to_datetime(df_davi["COL_0"], errors="coerce")
         df_davi = df_davi[df_davi["COL_0"].dt.normalize().isin(fechas_dt)].copy()
 
-        # Filtro 2: columna G no en exclusiones
+        # Filtro 2: columna G (TIPOMOVIMIENTO) != Nota Débito
         if df_davi.shape[1] > 6:
+            excluir_tipomov = [e.upper().strip() for e in EXCLUIR_DAVIVIENDA_TIPOMOV]
+            mask_tipomov = df_davi["COL_6"].astype(str).str.upper().str.strip().isin(excluir_tipomov)
+            df_davi = df_davi[~mask_tipomov].copy()
+
+        # Filtro 3: columna H (CONCEPTO) no en exclusiones
+        if df_davi.shape[1] > 7:
             excluir_upper = [e.upper().strip() for e in EXCLUIR_DAVIVIENDA]
-            mask_excluir = df_davi["COL_6"].astype(str).str.upper().str.strip().isin(excluir_upper)
+            mask_excluir = df_davi["COL_7"].astype(str).str.upper().str.strip().isin(excluir_upper)
             df_davi = df_davi[~mask_excluir].copy()
 
-        # Filtro 3: columna C vacía
+        # Filtro 4: columna C vacía
         if df_davi.shape[1] > 2:
             mask_vacia = df_davi["COL_2"].isna() | (df_davi["COL_2"].astype(str).str.strip().isin(["", "nan"]))
             df_davi = df_davi[mask_vacia].copy()
@@ -340,8 +350,8 @@ def extraer_cargue_banco(archivo, fechas_filtro):
             df_out2 = pd.DataFrame()
             df_out2["FECHA"]   = df_davi["COL_0"]
             df_out2["ENTIDAD"] = df_davi["COL_1"] if df_davi.shape[1] > 1 else "DAVIVIENDA"
-            df_out2["VALOR"]   = pd.to_numeric(df_davi["COL_7"], errors="coerce") if df_davi.shape[1] > 7 else 0
-            df_out2["FRA"]     = df_davi["COL_8"] if df_davi.shape[1] > 8 else None
+            df_out2["VALOR"]   = pd.to_numeric(df_davi["COL_8"], errors="coerce") if df_davi.shape[1] > 8 else 0
+            df_out2["FRA"]     = df_davi["COL_9"] if df_davi.shape[1] > 9 else None
             frames.append(df_out2)
 
     if not frames:
