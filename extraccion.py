@@ -21,9 +21,13 @@ ENTIDADES_POR_HOJA = {
 }
 
 # ─── Mapeo de columnas del libro fuente ────────────────────────────────────
-# El libro tiene: A=FECHAINGRESO, B=ENTIDAD, C=NOMBRE, D=CEDULA,
-#                 E=DOCUMENTODEAPROBACION, F=TIPODETRANSACIÓN,
-#                 G=REFERENCIA, H=VALOR, I=FRA, J=RECIBOS/RECIBO
+# BANCOLOMBIA: A=FECHAINGRESO, B=ENTIDAD, C=NOMBRE, D=CEDULA,
+#              E=DOCUMENTODEAPROBACION, F=TIPODETRANSACIÓN,
+#              G=REFERENCIA, H=VALOR, I=FRA, J=RECIBOS/RECIBO
+# DAVIVIENDA:  igual que Bancolombia pero con una columna adicional
+#              (TIPOMOVIMIENTO) insertada entre F y G, por lo que
+#              VALOR, FRA y RECIBO quedan una posición más adelante
+#              (I=VALOR, J=FRA, K=RECIBO). Ver `es_davivienda` más abajo.
 
 COL_FECHA    = 0   # A
 COL_ENTIDAD  = 1   # B
@@ -80,15 +84,24 @@ def extraer_pagos_bancarios(archivo, archivo_corresponsal):
         if df is None or df.empty:
             continue
 
+        # Davivienda tiene una columna adicional (TIPOMOVIMIENTO) insertada
+        # entre F y G, por lo que VALOR, FRA y RECIBO quedan corridos una
+        # posición respecto al mapeo original (que sigue aplicando tal cual
+        # para Bancolombia).
+        es_davivienda = "DAVIVIENDA" in nombre_hoja.upper()
+        col_valor  = COL_VALOR + 1  if es_davivienda else COL_VALOR
+        col_fra    = COL_FRA + 1    if es_davivienda else COL_FRA
+        col_recibo = COL_RECIBO + 1 if es_davivienda else COL_RECIBO
+
         # Renombrar columnas relevantes
         rename = {}
         if df.shape[1] > COL_FECHA:    rename[f"COL_{COL_FECHA}"]   = "FECHA"
         if df.shape[1] > COL_ENTIDAD:  rename[f"COL_{COL_ENTIDAD}"] = "ENTIDAD"
         if df.shape[1] > COL_CEDULA:   rename[f"COL_{COL_CEDULA}"]  = "CEDULA"
         if df.shape[1] > COL_TIPO:     rename[f"COL_{COL_TIPO}"]    = "T_TRANSACCION_SRC"
-        if df.shape[1] > COL_VALOR:    rename[f"COL_{COL_VALOR}"]   = "VALOR"
-        if df.shape[1] > COL_FRA:      rename[f"COL_{COL_FRA}"]     = "NUM_FACTURA"
-        if df.shape[1] > COL_RECIBO:   rename[f"COL_{COL_RECIBO}"]  = "RECIBO_SRC"
+        if df.shape[1] > col_valor:    rename[f"COL_{col_valor}"]   = "VALOR"
+        if df.shape[1] > col_fra:      rename[f"COL_{col_fra}"]     = "NUM_FACTURA"
+        if df.shape[1] > col_recibo:   rename[f"COL_{col_recibo}"]  = "RECIBO_SRC"
         df = df.rename(columns=rename)
 
         # ── Filtro rosado: cedula con valor Y recibo vacío ──────────────
