@@ -742,6 +742,27 @@ def _render_conciliar_puentes():
             _mostrar_resultado_puentes(df_resultado, cuenta_actual)
 
 
+def _parsear_fecha_mixta(serie):
+    """
+    Parsea una columna de fechas que puede venir en dos formatos distintos
+    según el origen del auxiliar:
+      - ISO (YYYY-MM-DD): auxiliares nuevos exportados desde AWS.
+      - DD/MM/YYYY: auxiliares antiguos en Excel.
+    Forzar dayfirst=True sobre fechas ISO las rompe (ej. 2026-07-01 se
+    interpreta como si "07" fuera el día), así que cada formato se
+    parsea con la regla que le corresponde.
+    """
+    s = serie.astype(str).str.strip()
+    es_iso = s.str.match(r"^\d{4}-\d{1,2}-\d{1,2}")
+
+    resultado = pd.Series(pd.NaT, index=serie.index, dtype="datetime64[ns]")
+    if es_iso.any():
+        resultado.loc[es_iso] = pd.to_datetime(s[es_iso], errors="coerce")
+    if (~es_iso).any():
+        resultado.loc[~es_iso] = pd.to_datetime(s[~es_iso], dayfirst=True, errors="coerce")
+    return resultado
+
+
 def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta, mes_num=None):
     """
     Lee los auxiliares y filtra por cuenta. Si mes_num se proporciona,
@@ -773,7 +794,7 @@ def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta, mes_num=None):
             if mes_num is not None:
                 col_fec = next((c for c in filtrado.columns if c == "fecha"), None)
                 if col_fec:
-                    filtrado[col_fec] = pd.to_datetime(filtrado[col_fec], dayfirst=True, errors="coerce")
+                    filtrado[col_fec] = _parsear_fecha_mixta(filtrado[col_fec])
                     filtrado = filtrado[filtrado[col_fec].dt.month == mes_num].copy()
                 if filtrado.empty:
                     continue
