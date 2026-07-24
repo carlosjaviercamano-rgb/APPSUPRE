@@ -99,6 +99,41 @@ MESES_PUENTES = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO",
 
 
 # ══════════════════════════════════════════════════════════════════════════
+def _leer_csv_auxiliar(archivo):
+    """
+    Lee un CSV de auxiliar detectando automáticamente el separador
+    (',' o ';') y el formato decimal (',' o '.').
+    """
+    archivo.seek(0)
+    try:
+        df = pd.read_csv(archivo, sep=None, engine="python",
+                          decimal=",", encoding="utf-8")
+    except UnicodeDecodeError:
+        archivo.seek(0)
+        df = pd.read_csv(archivo, sep=None, engine="python",
+                          decimal=",", encoding="latin-1")
+    return df
+
+
+def _normalizar_col_id(serie):
+    """
+    Corrige columnas identificadoras (codigocuenta, identificacion, etc.)
+    que pandas convierte a float (ej. 111005005.0) al leer CSV,
+    dejándolas como texto sin el '.0' sobrante.
+    """
+    def _norm(x):
+        if pd.isna(x):
+            return x
+        s = str(x).strip()
+        if s.endswith(".0"):
+            try:
+                return str(int(float(s)))
+            except Exception:
+                return s
+        return s
+    return serie.apply(_norm)
+
+
 # SECCIÓN COMPARTIDA: LIBRO AUXILIAR
 # ══════════════════════════════════════════════════════════════════════════
 
@@ -239,15 +274,14 @@ def _unir_auxiliares(archivos):
         try:
             nombre_lower = archivo.name.lower()
             if nombre_lower.endswith(".csv"):
-                try:
-                    archivo.seek(0)
-                    df = pd.read_csv(archivo, sep=",", encoding="utf-8")
-                except UnicodeDecodeError:
-                    archivo.seek(0)
-                    df = pd.read_csv(archivo, sep=",", encoding="latin-1")
+                df = _leer_csv_auxiliar(archivo)
             else:
                 df = pd.read_excel(archivo, sheet_name=0)
             df.columns = [c.strip().lower() for c in df.columns]
+            if nombre_lower.endswith(".csv"):
+                for col_id in ["codigocuenta", "identificacion", "nrodocumento", "factura", "id"]:
+                    if col_id in df.columns:
+                        df[col_id] = _normalizar_col_id(df[col_id])
             empresa = ""
             if "empresa" in df.columns and not df.empty:
                 empresa = str(df["empresa"].iloc[0]).strip()
@@ -718,15 +752,14 @@ def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta, mes_num=None):
         try:
             nombre_lower = archivo.name.lower()
             if nombre_lower.endswith(".csv"):
-                try:
-                    archivo.seek(0)
-                    df = pd.read_csv(archivo, sep=",", encoding="utf-8")
-                except UnicodeDecodeError:
-                    archivo.seek(0)
-                    df = pd.read_csv(archivo, sep=",", encoding="latin-1")
+                df = _leer_csv_auxiliar(archivo)
             else:
                 df = pd.read_excel(archivo, sheet_name=0)
             df.columns = [c.strip().lower() for c in df.columns]
+            if nombre_lower.endswith(".csv"):
+                for col_id in ["codigocuenta", "identificacion", "nrodocumento", "factura", "id"]:
+                    if col_id in df.columns:
+                        df[col_id] = _normalizar_col_id(df[col_id])
             col_cuenta = "codigocuenta"
             if col_cuenta not in df.columns:
                 continue
