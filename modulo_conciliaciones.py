@@ -121,7 +121,7 @@ def render_cargue_auxiliares(key_prefix=""):
             import os, io as _io
             archivos_od = [
                 f for f in os.listdir(RUTA_AUX_OD)
-                if f.endswith(".xlsx") and "auxiliar" in f.lower()
+                if (f.endswith(".xlsx") or f.endswith(".csv")) and "auxiliar" in f.lower()
             ]
             if not archivos_od:
                 st.warning("⚠️ No se encontraron archivos con 'Auxiliar' en el nombre.")
@@ -141,8 +141,8 @@ def render_cargue_auxiliares(key_prefix=""):
 
     st.markdown("**⬆️ O selecciónalos manualmente:**")
     archivos = st.file_uploader(
-        "Selecciona los auxiliares (.xlsx)",
-        type=["xlsx"],
+        "Selecciona los auxiliares (.xlsx o .csv)",
+        type=["xlsx","csv"],
         accept_multiple_files=True,
         key=f"up_{key_prefix}_auxiliares",
         label_visibility="collapsed"
@@ -237,7 +237,16 @@ def _unir_auxiliares(archivos):
 
     for archivo in archivos:
         try:
-            df = pd.read_excel(archivo, sheet_name=0)
+            nombre_lower = archivo.name.lower()
+            if nombre_lower.endswith(".csv"):
+                try:
+                    archivo.seek(0)
+                    df = pd.read_csv(archivo, sep=",", encoding="utf-8")
+                except UnicodeDecodeError:
+                    archivo.seek(0)
+                    df = pd.read_csv(archivo, sep=",", encoding="latin-1")
+            else:
+                df = pd.read_excel(archivo, sheet_name=0)
             df.columns = [c.strip().lower() for c in df.columns]
             empresa = ""
             if "empresa" in df.columns and not df.empty:
@@ -313,7 +322,7 @@ def render_bancaria():
                 import os, io as _io
                 archivos_od = [
                     f for f in os.listdir(RUTA_AUX_OD)
-                    if f.endswith(".xlsx") and "auxiliar" in f.lower()
+                    if (f.endswith(".xlsx") or f.endswith(".csv")) and "auxiliar" in f.lower()
                 ]
                 if not archivos_od:
                     st.warning("⚠️ No se encontraron archivos con 'Auxiliar' en el nombre.")
@@ -333,8 +342,8 @@ def render_bancaria():
 
         st.markdown("**⬆️ O selecciónalos manualmente:**")
         archivos_aux = st.file_uploader(
-            "Selecciona los auxiliares (.xlsx)",
-            type=["xlsx"], accept_multiple_files=True,
+            "Selecciona los auxiliares (.xlsx o .csv)",
+            type=["xlsx","csv"], accept_multiple_files=True,
             key="up_banc_auxiliares", label_visibility="collapsed"
         )
         if archivos_aux:
@@ -707,7 +716,16 @@ def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta, mes_num=None):
     frames = []
     for archivo in archivos:
         try:
-            df = pd.read_excel(archivo, sheet_name=0)
+            nombre_lower = archivo.name.lower()
+            if nombre_lower.endswith(".csv"):
+                try:
+                    archivo.seek(0)
+                    df = pd.read_csv(archivo, sep=",", encoding="utf-8")
+                except UnicodeDecodeError:
+                    archivo.seek(0)
+                    df = pd.read_csv(archivo, sep=",", encoding="latin-1")
+            else:
+                df = pd.read_excel(archivo, sheet_name=0)
             df.columns = [c.strip().lower() for c in df.columns]
             col_cuenta = "codigocuenta"
             if col_cuenta not in df.columns:
@@ -1000,7 +1018,7 @@ def _render_carga_auxiliares_puentes():
             import os, io as _io
             archivos_od = [
                 f for f in os.listdir(RUTA_AUX_OD)
-                if f.endswith(".xlsx") and "auxiliar" in f.lower()
+                if (f.endswith(".xlsx") or f.endswith(".csv")) and "auxiliar" in f.lower()
             ]
             if not archivos_od:
                 st.warning("⚠️ No se encontraron archivos con 'Auxiliar' en el nombre.")
@@ -1020,8 +1038,8 @@ def _render_carga_auxiliares_puentes():
 
     st.markdown("**⬆️ O selecciónalos manualmente:**")
     archivos = st.file_uploader(
-        "Selecciona los auxiliares (.xlsx)",
-        type=["xlsx"],
+        "Selecciona los auxiliares (.xlsx o .csv)",
+        type=["xlsx","csv"],
         accept_multiple_files=True,
         key="up_puentes_auxiliares",
         label_visibility="collapsed"
