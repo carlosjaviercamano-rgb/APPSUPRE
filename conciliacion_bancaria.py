@@ -165,6 +165,42 @@ def _parse_fecha_str(s):
 # PASO 1: FILTRAR DATOS (rápido, sin conciliar)
 # ══════════════════════════════════════════════════════════════════════════
 
+def _leer_archivo_aux(f):
+    """
+    Lee un archivo auxiliar en .xlsx o .csv. Para CSV detecta
+    automáticamente el separador (',' o ';') y el formato decimal
+    (coma o punto), típico de las exportaciones de AWS.
+    """
+    nombre = getattr(f, "name", "").lower()
+    f.seek(0)
+    if nombre.endswith(".csv"):
+        try:
+            return pd.read_csv(f, sep=None, engine="python",
+                                decimal=",", encoding="utf-8")
+        except UnicodeDecodeError:
+            f.seek(0)
+            return pd.read_csv(f, sep=None, engine="python",
+                                decimal=",", encoding="latin-1")
+    return pd.read_excel(f, sheet_name=0, header=0)
+
+
+def _parsear_fecha_mixta_aux(serie):
+    """
+    Parsea fechas que pueden venir en formato ISO (YYYY-MM-DD, auxiliares
+    nuevos de AWS) o DD/MM/YYYY (auxiliares antiguos en Excel). Forzar
+    dayfirst=True sobre fechas ISO las rompe, así que cada formato se
+    parsea con la regla que le corresponde.
+    """
+    s = serie.astype(str).str.strip()
+    es_iso = s.str.match(r"^\d{4}-\d{1,2}-\d{1,2}")
+    resultado = pd.Series(pd.NaT, index=serie.index, dtype="datetime64[ns]")
+    if es_iso.any():
+        resultado.loc[es_iso] = pd.to_datetime(s[es_iso], errors="coerce")
+    if (~es_iso).any():
+        resultado.loc[~es_iso] = pd.to_datetime(s[~es_iso], dayfirst=True, errors="coerce")
+    return resultado
+
+
 def filtrar_datos(archivos_aux, archivo_extracto, empresa, codigo_cuenta, mes_idx):
     """
     Solo filtra y lee los datos necesarios.
@@ -181,7 +217,7 @@ def filtrar_datos(archivos_aux, archivo_extracto, empresa, codigo_cuenta, mes_id
     for f in archivos_aux:
         f.seek(0)
         try:
-            df = pd.read_excel(f, sheet_name=0, header=0)
+            df = _leer_archivo_aux(f)
         except Exception:
             continue
 
@@ -210,7 +246,7 @@ def filtrar_datos(archivos_aux, archivo_extracto, empresa, codigo_cuenta, mes_id
 
         # Filtro mes
         try:
-            df[col_fec] = pd.to_datetime(df[col_fec], dayfirst=True, errors='coerce')
+            df[col_fec] = _parsear_fecha_mixta_aux(df[col_fec])
             mask_mes = df[col_fec].dt.month == mes_num
             df = df[mask_mes]
         except Exception:
