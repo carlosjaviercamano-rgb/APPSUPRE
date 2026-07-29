@@ -19,22 +19,94 @@ def render():
         <div class="module-icon">📤</div>
         <div>
             <h1>Cargue de Banco</h1>
-            <p>Ingresos y gastos bancarios</p>
+            <p>Ingresos bancarios, gastos bancarios y rendimiento financiero</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    sub_tab1, sub_tab2 = st.tabs(["💰 Ingresos Bancarios", "💸 Gastos Bancarios"])
+    if "submodulo_cargue" not in st.session_state:
+        st.session_state.submodulo_cargue = None
 
-    with sub_tab1:
+    sub = st.session_state.submodulo_cargue
+
+    if sub is None:
+        _render_menu_submodulos()
+    elif sub == "ingresos":
+        _render_volver()
+        st.markdown("### 💰 Ingresos Bancarios")
         tab1, tab2 = st.tabs(["📥 1. Extracción", "📁 2. Generar Archivo"])
         with tab1:
             render_extraccion()
         with tab2:
             render_generar()
-
-    with sub_tab2:
+    elif sub == "gastos":
+        _render_volver()
         render_gastos_bancarios()
+    elif sub == "rendimiento":
+        _render_volver()
+        render_rendimiento_financiero()
+
+
+def _render_menu_submodulos():
+    st.markdown("### Selecciona el tipo de cargue")
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("""
+        <div style="background:#1a1f2e;border:1px solid #2d3548;border-radius:12px;
+                    padding:1.5rem;text-align:center;">
+            <div style="font-size:2.5rem">💰</div>
+            <div style="font-weight:700;color:#fff;margin-top:0.5rem;font-size:1rem">
+                Ingresos Bancarios</div>
+            <div style="color:#64748b;font-size:0.8rem;margin-top:0.3rem">
+                Extracción del Libro de Banco</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Entrar →", key="btn_ingresos", use_container_width=True, type="primary"):
+            st.session_state.submodulo_cargue = "ingresos"
+            st.rerun()
+
+    with col2:
+        st.markdown("""
+        <div style="background:#1a1f2e;border:1px solid #2d3548;border-radius:12px;
+                    padding:1.5rem;text-align:center;">
+            <div style="font-size:2.5rem">💸</div>
+            <div style="font-weight:700;color:#fff;margin-top:0.5rem;font-size:1rem">
+                Gastos Bancarios</div>
+            <div style="color:#64748b;font-size:0.8rem;margin-top:0.3rem">
+                Pegado manual desde Excel</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Entrar →", key="btn_gastos", use_container_width=True, type="primary"):
+            st.session_state.submodulo_cargue = "gastos"
+            st.rerun()
+
+    with col3:
+        st.markdown("""
+        <div style="background:#1a1f2e;border:1px solid #2d3548;border-radius:12px;
+                    padding:1.5rem;text-align:center;">
+            <div style="font-size:2.5rem">📈</div>
+            <div style="font-weight:700;color:#fff;margin-top:0.5rem;font-size:1rem">
+                Rendimiento Financiero</div>
+            <div style="color:#64748b;font-size:0.8rem;margin-top:0.3rem">
+                Intereses de cuentas de ahorro</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Entrar →", key="btn_rendimiento", use_container_width=True, type="primary"):
+            st.session_state.submodulo_cargue = "rendimiento"
+            st.rerun()
+
+
+def _render_volver():
+    if st.button("← Volver a Cargue de Banco", key="btn_volver_cargue"):
+        st.session_state.submodulo_cargue = None
+        st.rerun()
+    st.markdown("<br>", unsafe_allow_html=True)
 
 
 def render_gastos_bancarios():
@@ -61,7 +133,7 @@ def render_gastos_bancarios():
             key="gastos_empresa_sel"
         )
 
-    columnas_base = ["FECHA", "VALOR", "CONCEPTO"]
+    columnas_base = ["VALOR", "FECHA", "CONCEPTO"]
 
     # Placeholder reservado arriba; se rellena después de leer la tabla
     # (el valor depende de lo que haya en el data_editor, que se lee más abajo)
@@ -130,6 +202,88 @@ def render_gastos_bancarios():
             with st.spinner("Generando archivo..."):
                 try:
                     resultado = crear_gastos_bancarios(
+                        df_editado[columnas_base], empresa, banco, st.session_state.config
+                    )
+                    st.success(f"✅ {resultado}")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+
+def render_rendimiento_financiero():
+    from generar_rendimiento_financiero import crear_rendimiento_financiero
+    from generar_gastos_bancarios import _num
+    from conciliacion_bancaria import EMPRESAS_CUENTAS
+
+    st.markdown("### 📈 Rendimiento Financiero")
+    st.caption(
+        "Pega desde Excel las columnas CONCEPTO, FECHA y VALOR tal cual vienen "
+        "(se conservan exactamente como las pegues). Son los intereses que paga "
+        "el banco por el dinero en cuentas de ahorro."
+    )
+
+    col_banco, col_empresa = st.columns(2)
+    with col_banco:
+        banco = st.selectbox(
+            "Banco",
+            ["BANCOLOMBIA", "DAVIVIENDA", "OCCIDENTE", "BOGOTA"],
+            key="rendimiento_banco_sel"
+        )
+    with col_empresa:
+        empresa = st.selectbox(
+            "Empresa",
+            sorted(EMPRESAS_CUENTAS.keys()),
+            key="rendimiento_empresa_sel"
+        )
+
+    columnas_base = ["CONCEPTO", "FECHA", "VALOR"]
+
+    # Placeholder reservado arriba; se rellena después de leer la tabla
+    metric_placeholder = st.empty()
+
+    if "rendimiento_editor_version" not in st.session_state:
+        st.session_state["rendimiento_editor_version"] = 0
+    editor_key = f"editor_rendimiento_financiero_{st.session_state['rendimiento_editor_version']}"
+
+    plantilla_vacia = pd.DataFrame({c: pd.Series(dtype="str") for c in columnas_base})
+
+    st.markdown("**⬆️ Pega aquí las filas copiadas desde Excel:**")
+    df_editado = st.data_editor(
+        plantilla_vacia,
+        num_rows="dynamic",
+        use_container_width=True,
+        key=editor_key,
+        column_config={
+            "CONCEPTO": st.column_config.TextColumn("Concepto (banco)"),
+            "FECHA":    st.column_config.TextColumn("Fecha (tal cual la pegues)"),
+            "VALOR":    st.column_config.TextColumn("Valor (tal cual lo pegues)"),
+        }
+    )
+
+    total_valor = sum(_num(v) for v in df_editado["VALOR"] if str(v).strip() != "")
+    metric_placeholder.markdown(f"""
+    <div style="background-color:#0f2a1a;border:1px solid #2ecc71;border-radius:10px;
+                padding:0.4rem 1.2rem;margin-bottom:1rem;width:fit-content;">
+        <div style="color:#2ecc71;font-size:0.85rem;font-weight:600;letter-spacing:0.5px;">
+            📈 VALOR RENDIMIENTO FINANCIERO
+        </div>
+        <div style="color:#2ecc71;font-size:1.4rem;font-weight:700;">
+            {_formato_cop(total_valor)}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_gen, col_lim = st.columns([3, 1])
+    with col_lim:
+        if st.button("🔄  Limpiar tabla", use_container_width=True, key="limpiar_rendimiento"):
+            st.session_state["rendimiento_editor_version"] += 1
+            st.rerun()
+    with col_gen:
+        if st.button("📤  Generar Archivo de Rendimiento Financiero", type="primary", use_container_width=True):
+            with st.spinner("Generando archivo..."):
+                try:
+                    resultado = crear_rendimiento_financiero(
                         df_editado[columnas_base], empresa, banco, st.session_state.config
                     )
                     st.success(f"✅ {resultado}")

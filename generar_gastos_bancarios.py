@@ -23,6 +23,11 @@ TIPO_TERCERO_POR_BANCO = {
     "BOGOTA":      "NIT",
 }
 CENTRO_COSTO   = "102"
+EMPRESAS_CENTRO_COSTO_ESPECIAL = {
+    "AMANECERDEPASCUA":  "9999",
+    "ANOCHECERDEPASCUA": "9999",
+    "MAÑANADEPASCUA":    "9999",
+}
 LIMITE_MOVIMIENTOS = 480
 
 # Cuenta de débito según el concepto de cargue detectado
@@ -42,6 +47,22 @@ _PALABRAS_CLAVE = [
     (("GMF", "GRAVAMEN", "4X1000", "IMPTO GOBIERNO"),         "GMF 4X1000"),
     (("GIRO",),                                                "SOBRE GIRO"),
 ]
+
+
+def obtener_centro_costo(empresa):
+    """
+    Devuelve el codigoCentroCosto según la empresa: 9999 para las
+    empresas de Pascua (Amanecer/Anochecer/Mañana), 102 para el resto.
+    """
+    import unicodedata
+    def _norm(s):
+        s = str(s).upper().strip()
+        return unicodedata.normalize("NFKD", s).encode("ASCII", "ignore").decode("ASCII")
+    empresa_norm = _norm(empresa)
+    for clave, valor in EMPRESAS_CENTRO_COSTO_ESPECIAL.items():
+        if _norm(clave) == empresa_norm:
+            return valor
+    return CENTRO_COSTO
 
 
 def detectar_concepto_cargue(concepto_banco):
@@ -83,6 +104,7 @@ def crear_gastos_bancarios(df_tabla, empresa, banco, config=None):
     if not nit_banco:
         raise ValueError(f"No se encontró el NIT configurado para el banco '{banco}'.")
     tipo_tercero = TIPO_TERCERO_POR_BANCO.get(banco.upper(), "NIT")
+    centro_costo = obtener_centro_costo(empresa)
 
     cuenta_credito = obtener_cuenta_credito(empresa, banco)
     if not cuenta_credito:
@@ -154,7 +176,7 @@ def crear_gastos_bancarios(df_tabla, empresa, banco, config=None):
                 valor_base   = round(valor / 0.19, 7) if valor else 0
 
             filas_debito.append({
-                "codigoCentroCosto": CENTRO_COSTO,
+                "codigoCentroCosto": centro_costo,
                 "dniTercero": nit_banco, "codigoTipoDniTercero": tipo_tercero,
                 "codigoCuenta": cuenta_debito, "valor": valor,
                 "factura": "", "fechaVencimiento": None,
@@ -162,7 +184,7 @@ def crear_gastos_bancarios(df_tabla, empresa, banco, config=None):
                 "porcentajeImpuesto": pct_impuesto, "detalle": detalle,
             })
             filas_credito.append({
-                "codigoCentroCosto": CENTRO_COSTO,
+                "codigoCentroCosto": centro_costo,
                 "dniTercero": nit_banco, "codigoTipoDniTercero": tipo_tercero,
                 "codigoCuenta": cuenta_credito, "valor": -abs(valor),
                 "factura": "", "fechaVencimiento": None,
