@@ -37,7 +37,7 @@ CUENTAS_DEBITO_GASTOS = {
 # concepto tal como viene del banco. Se va ampliando por banco a medida
 # que aparecen nuevas variantes de texto.
 _PALABRAS_CLAVE = [
-    (("SERVICIO", "COMISION", "COMISIÓN", "COMIS"),          "COMISION"),
+    (("SERVICIO", "COMISION", "COMISIÓN", "COMIS", "ND COBRO DISP", "COBRO TRANSFERENCIA"), "COMISION"),
     (("IVA",),                                                "IVA"),
     (("GMF", "GRAVAMEN", "4X1000", "IMPTO GOBIERNO"),         "GMF 4X1000"),
     (("GIRO",),                                                "SOBRE GIRO"),
