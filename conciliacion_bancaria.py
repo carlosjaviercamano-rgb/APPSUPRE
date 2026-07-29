@@ -165,6 +165,18 @@ def _parse_fecha_str(s):
 # PASO 1: FILTRAR DATOS (rápido, sin conciliar)
 # ══════════════════════════════════════════════════════════════════════════
 
+def _normalizar_sin_acentos(texto):
+    """
+    Normaliza texto para comparar sin importar tildes ni ñ (algunos
+    auxiliares de AWS vienen sin caracteres especiales), en mayúsculas
+    y sin espacios sobrantes.
+    """
+    import unicodedata
+    s = str(texto).upper().strip()
+    s = unicodedata.normalize("NFKD", s).encode("ASCII", "ignore").decode("ASCII")
+    return s
+
+
 def _leer_archivo_aux(f):
     """
     Lee un archivo auxiliar en .xlsx o .csv. Para CSV detecta
@@ -233,8 +245,10 @@ def filtrar_datos(archivos_aux, archivo_extracto, empresa, codigo_cuenta, mes_id
         if not col_emp or not col_cta or not col_fec:
             continue
 
-        # Filtro empresa (case-insensitive)
-        mask_emp = df[col_emp].astype(str).str.upper().str.strip() == empresa.upper().strip()
+        # Filtro empresa (case-insensitive e insensible a tildes/ñ, ya que
+        # algunos auxiliares de AWS vienen sin caracteres especiales,
+        # ej. "MananaDePascua" en vez de "MañanaDePascua")
+        mask_emp = df[col_emp].apply(_normalizar_sin_acentos) == _normalizar_sin_acentos(empresa)
         df = df[mask_emp]
 
         # Filtro cuenta
