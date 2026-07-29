@@ -10,5 +10,8 @@
   "ruta_conc_davivienda": "C:\\Users\\ASUS\\Desktop\\BANCOS\\MOVIMIENTOS BANCARIOS\\DAVIVIENDA\\\\",
   "ruta_conc_occidente": "C:\\Users\\ASUS\\Desktop\\BANCOS\\MOVIMIENTOS BANCARIOS\\OCCIDENTE\\\\",
   "ruta_conc_bogota": "C:\\Users\\ASUS\\Desktop\\BANCOS\\MOVIMIENTOS BANCARIOS\\BOGOTA\\\\",
-  "ruta_conc_puentes": "C:\\Users\\ASUS\\Desktop\\BANCOS\\MOVIMIENTOS BANCARIOS\\CUENTA CANJE BANCO\\\\"
+  "ruta_conc_puentes": "C:\\Users\\ASUS\\Desktop\\BANCOS\\MOVIMIENTOS BANCARIOS\\CUENTA CANJE BANCO\\\\",
+  "ruta_cargue_banco": "C:\\Users\\ASUS\\Desktop\\BANCOS\\CARGUE BANCOS\\\\",
+  "ruta_tabla_pagos": "C:\\Users\\ASUS\\Desktop\\BANCOS\\MOVIMIENTOS DEL MES\\\\",
+  "ruta_gastos_bancarios": "C:\\Users\\ASUS\\Desktop\\BANCOS\\CARGUE BANCOS\\\\"
 }

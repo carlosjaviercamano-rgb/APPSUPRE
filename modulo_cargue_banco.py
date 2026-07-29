@@ -3,23 +3,140 @@ import pandas as pd
 from datetime import date
 
 
+def _formato_cop(valor):
+    """Formatea un número como moneda colombiana: $5.000.025,25"""
+    try:
+        s = f"{float(valor):,.2f}"
+    except Exception:
+        return "$0,00"
+    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"${s}"
+
+
 def render():
     st.markdown("""
     <div class="module-header">
         <div class="module-icon">📤</div>
         <div>
-            <h1>Cargue Banco</h1>
-            <p>Extracción y generación de archivos de cargue bancario</p>
+            <h1>Cargue de Banco</h1>
+            <p>Ingresos y gastos bancarios</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    tab1, tab2 = st.tabs(["📥 1. Extracción", "📁 2. Generar Archivo"])
+    sub_tab1, sub_tab2 = st.tabs(["💰 Ingresos Bancarios", "💸 Gastos Bancarios"])
 
-    with tab1:
-        render_extraccion()
-    with tab2:
-        render_generar()
+    with sub_tab1:
+        tab1, tab2 = st.tabs(["📥 1. Extracción", "📁 2. Generar Archivo"])
+        with tab1:
+            render_extraccion()
+        with tab2:
+            render_generar()
+
+    with sub_tab2:
+        render_gastos_bancarios()
+
+
+def render_gastos_bancarios():
+    from generar_gastos_bancarios import crear_gastos_bancarios, detectar_concepto_cargue
+    from conciliacion_bancaria import EMPRESAS_CUENTAS
+
+    st.markdown("### Gastos Bancarios")
+    st.caption(
+        "Pega desde Excel las columnas FECHA, VALOR y CONCEPTO tal cual vienen "
+        "(se conservan exactamente como las pegues). El CONCEPTO CARGUE se calcula solo."
+    )
+
+    col_banco, col_empresa = st.columns(2)
+    with col_banco:
+        banco = st.selectbox(
+            "Banco",
+            ["BANCOLOMBIA", "DAVIVIENDA", "OCCIDENTE", "BOGOTA"],
+            key="gastos_banco_sel"
+        )
+    with col_empresa:
+        empresa = st.selectbox(
+            "Empresa",
+            sorted(EMPRESAS_CUENTAS.keys()),
+            key="gastos_empresa_sel"
+        )
+
+    columnas_base = ["FECHA", "VALOR", "CONCEPTO"]
+
+    # Placeholder reservado arriba; se rellena después de leer la tabla
+    # (el valor depende de lo que haya en el data_editor, que se lee más abajo)
+    metric_placeholder = st.empty()
+
+    # Plantilla vacía estable: NO se retroalimenta con lo ya editado.
+    # Streamlit conserva internamente lo pegado/editado a través de la
+    # misma key del widget entre recargas; si le devolvemos su propia
+    # salida como "value" en cada corrida, se confunde y puede perder
+    # filas pegadas al recargar por un clic de botón.
+    if "gastos_editor_version" not in st.session_state:
+        st.session_state["gastos_editor_version"] = 0
+    editor_key = f"editor_gastos_bancarios_{st.session_state['gastos_editor_version']}"
+
+    plantilla_vacia = pd.DataFrame({c: pd.Series(dtype="str") for c in columnas_base})
+
+    st.markdown("**⬆️ Pega aquí las filas copiadas desde Excel:**")
+    df_editado = st.data_editor(
+        plantilla_vacia,
+        num_rows="dynamic",
+        use_container_width=True,
+        key=editor_key,
+        column_config={
+            "FECHA":    st.column_config.TextColumn("Fecha (tal cual la pegues)"),
+            "VALOR":    st.column_config.TextColumn("Valor (tal cual lo pegues)"),
+            "CONCEPTO": st.column_config.TextColumn("Concepto (banco)"),
+        }
+    )
+
+    from generar_gastos_bancarios import _num
+    total_valor = sum(_num(v) for v in df_editado["VALOR"] if str(v).strip() != "")
+    metric_placeholder.markdown(f"""
+    <div style="background-color:#0f2a1a;border:1px solid #2ecc71;border-radius:10px;
+                padding:0.4rem 1.2rem;margin-bottom:1rem;width:fit-content;">
+        <div style="color:#2ecc71;font-size:0.85rem;font-weight:600;letter-spacing:0.5px;">
+            💰 VALOR GASTOS BANCARIOS
+        </div>
+        <div style="color:#2ecc71;font-size:1.4rem;font-weight:700;">
+            {_formato_cop(total_valor)}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_prev, col_gen, col_lim = st.columns([1, 2, 1])
+    with col_prev:
+        ver_preview = st.button("🔍  Ver Concepto Cargue", use_container_width=True, key="preview_gastos")
+    with col_lim:
+        if st.button("🔄  Limpiar tabla", use_container_width=True, key="limpiar_gastos"):
+            st.session_state["gastos_editor_version"] += 1
+            st.session_state.pop("preview_gastos_df", None)
+            st.rerun()
+
+    if ver_preview:
+        df_preview = df_editado[columnas_base].copy()
+        df_preview["CONCEPTO CARGUE"] = df_preview["CONCEPTO"].apply(
+            lambda x: detectar_concepto_cargue(x) or "⚠️ No detectado"
+        )
+        st.session_state["preview_gastos_df"] = df_preview
+
+    if st.session_state.get("preview_gastos_df") is not None:
+        st.markdown("**Vista previa del Concepto Cargue detectado:**")
+        st.dataframe(st.session_state["preview_gastos_df"], use_container_width=True)
+
+    with col_gen:
+        if st.button("📤  Generar Archivo de Gastos Bancarios", type="primary", use_container_width=True):
+            with st.spinner("Generando archivo..."):
+                try:
+                    resultado = crear_gastos_bancarios(
+                        df_editado[columnas_base], empresa, banco, st.session_state.config
+                    )
+                    st.success(f"✅ {resultado}")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
 
 
 def render_extraccion():

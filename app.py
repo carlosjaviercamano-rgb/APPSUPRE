@@ -227,6 +227,7 @@ def cargar_config():
         "ruta_conc_puentes":     r"C:\Users\ASUS\Desktop\BANCOS\MOVIMIENTOS BANCARIOS\PUENTES\\",
         "ruta_cargue_banco":     r"C:\Users\ASUS\Desktop\BANCOS\CARGUE BANCOS\\",
         "ruta_tabla_pagos":      r"C:\Users\ASUS\Desktop\BANCOS\MOVIMIENTOS DEL MES\\",
+        "ruta_gastos_bancarios": r"C:\Users\ASUS\Desktop\BANCOS\GASTOS BANCARIOS\\",
     }
     if os.path.exists(CONFIG_PATH):
         try:
@@ -361,6 +362,13 @@ def modulo_configuracion():
         )
         st.markdown('</div>', unsafe_allow_html=True)
 
+        st.markdown('<div class="config-card"><h4>📁 Ruta Gastos Bancarios</h4>', unsafe_allow_html=True)
+        cfg["ruta_gastos_bancarios"] = st.text_input(
+            "Carpeta de gastos bancarios",
+            value=cfg["ruta_gastos_bancarios"]
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+
     with col2:
         st.markdown('<div class="config-card"><h4>📁 Ruta Compensaciones</h4>', unsafe_allow_html=True)
         cfg["ruta_compensaciones"] = st.text_input(
@@ -382,7 +390,7 @@ def modulo_configuracion():
         st.markdown(f"{'✅' if libro_ok else '⚠️'} Nombre del libro: {'configurado' if libro_ok else 'pendiente'}")
         st.markdown(f"{'✅' if url_ok else '⚠️'} URL SharePoint: {'configurada' if url_ok else 'pendiente'}")
         rutas_planos = ["ruta_movicap","ruta_suprecartera","ruta_suprecredito","ruta_tucredito","ruta_compensaciones"]
-        rutas_conc   = ["ruta_conc_bancolombia","ruta_conc_davivienda","ruta_conc_occidente","ruta_conc_bogota","ruta_conc_puentes","ruta_cargue_banco","ruta_tabla_pagos"]
+        rutas_conc   = ["ruta_conc_bancolombia","ruta_conc_davivienda","ruta_conc_occidente","ruta_conc_bogota","ruta_conc_puentes","ruta_cargue_banco","ruta_tabla_pagos","ruta_gastos_bancarios"]
         rutas_ok  = all(cfg.get(r) for r in rutas_planos)
         conc_ok   = all(cfg.get(r) for r in rutas_conc)
         st.markdown(f"{'✅' if rutas_ok  else '⚠️'} Rutas de planos: {'configuradas' if rutas_ok else 'revisar'}")
