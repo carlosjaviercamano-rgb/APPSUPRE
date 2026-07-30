@@ -43,7 +43,7 @@ CUENTAS_DEBITO_GASTOS = {
 # que aparecen nuevas variantes de texto.
 _PALABRAS_CLAVE = [
     (("IVA",),                                                "IVA"),
-    (("SERVICIO", "COMISION", "COMISIÓN", "COMIS", "ND COBRO DISP", "COBRO TRANSFERENCIA"), "COMISION"),
+    (("SERVICIO", "COMISION", "COMISIÓN", "COMIS", "ND COBRO DISP", "COBRO TRANSFERENCIA", "CARGO POR TRANSACCIONES VARIAS"), "COMISION"),
     (("GMF", "GRAVAMEN", "4X1000", "IMPTO GOBIERNO"),         "GMF 4X1000"),
     (("GIRO",),                                                "SOBRE GIRO"),
 ]
