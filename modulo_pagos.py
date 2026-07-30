@@ -130,26 +130,84 @@ def render():
         <div class="module-icon">💳</div>
         <div>
             <h1>Aplicación y Compensación de Pagos</h1>
-            <p>Extracción, cruce y generación de planos y compensaciones</p>
+            <p>Diaria y pendiente por ID</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📥 1. Carga de Archivos",
-        "📊 2. Tabla de Pagos",
-        "🔗 3. Alistar Información",
-        "📁 4. Generar Archivos"
-    ])
+    if "submodulo_pagos" not in st.session_state:
+        st.session_state.submodulo_pagos = None
 
-    with tab1:
-        render_carga_archivos()
-    with tab2:
-        render_tabla_pagos()
-    with tab3:
-        render_alistar_informacion()
-    with tab4:
-        render_generar_archivos()
+    sub = st.session_state.submodulo_pagos
+
+    if sub is None:
+        _render_menu_submodulos_pagos()
+        return
+
+    if st.button("← Volver a Aplicación y Compensación", key="btn_volver_pagos"):
+        st.session_state.submodulo_pagos = None
+        st.rerun()
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    if sub == "diaria":
+        st.markdown("### 📅 Aplicación y Compensación Diaria")
+        tab1, tab2, tab3, tab4 = st.tabs([
+            "📥 1. Carga de Archivos",
+            "📊 2. Tabla de Pagos",
+            "🔗 3. Alistar Información",
+            "📁 4. Generar Archivos"
+        ])
+
+        with tab1:
+            render_carga_archivos()
+        with tab2:
+            render_tabla_pagos()
+        with tab3:
+            render_alistar_informacion()
+        with tab4:
+            render_generar_archivos()
+
+    elif sub == "pendiente":
+        render_pendiente_por_id()
+
+
+def _render_menu_submodulos_pagos():
+    st.markdown("### Selecciona el tipo de aplicación")
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("""
+        <div style="background:#1a1f2e;border:1px solid #2d3548;border-radius:12px;
+                    padding:1.5rem;text-align:center;">
+            <div style="font-size:2.5rem">📅</div>
+            <div style="font-weight:700;color:#fff;margin-top:0.5rem;font-size:1rem">
+                Aplicación y Compensación Diaria</div>
+            <div style="color:#64748b;font-size:0.8rem;margin-top:0.3rem">
+                Carga, tabla de pagos, alistar información y generar archivos</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Entrar →", key="btn_diaria", use_container_width=True, type="primary"):
+            st.session_state.submodulo_pagos = "diaria"
+            st.rerun()
+
+    with col2:
+        st.markdown("""
+        <div style="background:#1a1f2e;border:1px solid #2d3548;border-radius:12px;
+                    padding:1.5rem;text-align:center;">
+            <div style="font-size:2.5rem">🆔</div>
+            <div style="font-weight:700;color:#fff;margin-top:0.5rem;font-size:1rem">
+                Aplicación y Compensación Pendiente por ID</div>
+            <div style="color:#64748b;font-size:0.8rem;margin-top:0.3rem">
+                Pagos antes marcados NO EXISTE, ya identificados</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Entrar →", key="btn_pendiente", use_container_width=True, type="primary"):
+            st.session_state.submodulo_pagos = "pendiente"
+            st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -575,7 +633,7 @@ def _mostrar_reemplazo_cedulas():
                 with col_c:
                     company_sel = st.selectbox(
                         "Company",
-                        ["Suprecartera", "Suprecredito", "Movicap", "TuCredito"],
+                        ["Suprecartera", "Suprecreditos", "Movicap", "TuCredito"],
                         key=f"company_{cedula}_{i}"
                     )
                 with col_f:
@@ -1210,3 +1268,226 @@ def render_generar_archivos():
             )
         except Exception as e:
             st.error(f"❌ Error al exportar: {str(e)}")
+
+# ══════════════════════════════════════════════════════════════════════════
+# PENDIENTE POR ID
+# ══════════════════════════════════════════════════════════════════════════
+def _formato_cop_pid(valor):
+    """Formatea un número como moneda colombiana: $5.000.025,25"""
+    try:
+        s = f"{float(valor):,.2f}"
+    except Exception:
+        return "$0,00"
+    s = s.replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"${s}"
+
+
+def render_pendiente_por_id():
+    from alistar import alistar_informacion, _resolver_escenarios_multifactura
+    from generar_planos import crear_planos
+    from generar_compensaciones import crear_compensaciones
+    from generar_gastos_bancarios import _num, _parsear_fecha_mixta
+
+    st.markdown("### 🆔 Aplicación y Compensación Pendiente por ID")
+    st.caption(
+        "Pega los pagos que antes quedaron marcados como NO EXISTE y que ya se "
+        "identificaron. Columnas: VALOR, FECHA, ENTIDAD, CEDULA, FRA. Incluye "
+        "Bancolombia, Davivienda, PSE, Efecty y Récord — la compensación se "
+        "genera uno a uno por registro (misma cuenta débito que Bancolombia/"
+        "Davivienda), sin sumar por entidad."
+    )
+
+    if not st.session_state.get("archivo_clientes"):
+        archivo = _cargar_desde_github("CLIENTES_ACTIVOS.xlsx")
+        if archivo:
+            st.session_state.archivo_clientes = archivo
+
+    if not st.session_state.get("archivo_clientes"):
+        st.warning(
+            "⚠️ No se pudo cargar el archivo de Clientes Activos desde el "
+            "repositorio. Verifica tu conexión o inténtalo de nuevo."
+        )
+        return
+
+    col_fdoc, col_btn_fdoc = st.columns([3, 1])
+    with col_fdoc:
+        fecha_doc_masiva = st.text_input(
+            "Fecha Documento para aplicar a toda la tabla (déjalo vacío para usar la misma Fecha de cada fila)",
+            key="pid_fecha_doc_masiva",
+            placeholder="Ej: 20/07/2026"
+        )
+    with col_btn_fdoc:
+        st.markdown("<br>", unsafe_allow_html=True)
+        aplicar_fecha_doc = st.button(
+            "📅  Aplicar a toda la tabla", use_container_width=True, key="btn_aplicar_fecha_doc"
+        )
+
+    columnas_base = ["FECHA", "ENTIDAD", "CEDULA", "VALOR", "FRA", "FECHA_DOCUMENTO"]
+
+    metric_placeholder = st.empty()
+
+    if "pid_editor_version" not in st.session_state:
+        st.session_state["pid_editor_version"] = 0
+    editor_key = f"editor_pid_{st.session_state['pid_editor_version']}"
+
+    if "pid_seed_df" not in st.session_state:
+        st.session_state["pid_seed_df"] = pd.DataFrame(
+            {c: pd.Series(dtype="str") for c in columnas_base}
+        )
+    plantilla_inicial = st.session_state["pid_seed_df"]
+
+    st.markdown("**⬆️ Pega aquí las filas copiadas desde Excel:**")
+    df_editado = st.data_editor(
+        plantilla_inicial,
+        num_rows="dynamic",
+        use_container_width=True,
+        key=editor_key,
+        column_config={
+            "FECHA":           st.column_config.TextColumn("Fecha (tal cual la pegues)"),
+            "ENTIDAD":         st.column_config.TextColumn("Entidad"),
+            "CEDULA":          st.column_config.TextColumn("Cédula"),
+            "VALOR":           st.column_config.TextColumn("Valor (tal cual lo pegues)"),
+            "FRA":             st.column_config.TextColumn("Factura (FRA)"),
+            "FECHA_DOCUMENTO": st.column_config.TextColumn("Fecha Documento (vacío = igual a Fecha)"),
+        }
+    )
+
+    if aplicar_fecha_doc:
+        if not fecha_doc_masiva.strip():
+            st.warning("⚠️ Escribe primero una fecha en el campo de arriba.")
+        else:
+            df_con_datos = df_editado.copy()
+            mask_con_datos = (
+                df_con_datos["FECHA"].astype(str).str.strip().ne("") |
+                df_con_datos["VALOR"].astype(str).str.strip().ne("") |
+                df_con_datos["CEDULA"].astype(str).str.strip().ne("")
+            )
+            df_con_datos.loc[mask_con_datos, "FECHA_DOCUMENTO"] = fecha_doc_masiva.strip()
+            st.session_state["pid_seed_df"] = df_con_datos
+            st.session_state["pid_editor_version"] += 1
+            st.rerun()
+
+    total_valor = sum(_num(v) for v in df_editado["VALOR"] if str(v).strip() != "")
+    metric_placeholder.markdown(f"""
+    <div style="background-color:#0f2a1a;border:1px solid #2ecc71;border-radius:10px;
+                padding:0.4rem 1.2rem;margin-bottom:1rem;width:fit-content;">
+        <div style="color:#2ecc71;font-size:0.85rem;font-weight:600;letter-spacing:0.5px;">
+            🆔 VALOR PENDIENTE POR ID
+        </div>
+        <div style="color:#2ecc71;font-size:1.4rem;font-weight:700;">
+            {_formato_cop_pid(total_valor)}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_alistar, col_lim = st.columns([3, 1])
+    with col_lim:
+        if st.button("🔄  Limpiar tabla", use_container_width=True, key="limpiar_pid"):
+            st.session_state["pid_editor_version"] += 1
+            st.session_state["pid_seed_df"] = pd.DataFrame(
+                {c: pd.Series(dtype="str") for c in columnas_base}
+            )
+            for k in ["pid_df_area_banco", "pid_df_sheet1", "pid_df_sheet1_base",
+                      "pid_df_sheet1_alertas"]:
+                st.session_state.pop(k, None)
+            st.session_state["distribuciones_confirmadas"] = None
+            st.rerun()
+    with col_alistar:
+        ejecutar = st.button(
+            "🔗  Alistar Información", type="primary",
+            use_container_width=True, key="btn_alistar_pid"
+        )
+
+    if ejecutar:
+        with st.spinner("Cruzando información con Clientes Activos..."):
+            try:
+                df = df_editado[columnas_base].copy()
+                df = df[df["CEDULA"].astype(str).str.strip() != ""].reset_index(drop=True)
+
+                if df.empty:
+                    st.warning("⚠️ No hay filas con cédula para procesar.")
+                else:
+                    df["FECHA"] = _parsear_fecha_mixta(df["FECHA"])
+                    df["VALOR"] = df["VALOR"].apply(_num)
+
+                    fecha_doc_pegada = _parsear_fecha_mixta(df["FECHA_DOCUMENTO"])
+                    df["FECHA_DOCUMENTO"] = fecha_doc_pegada.where(fecha_doc_pegada.notna(), df["FECHA"])
+                    for col in ["RECIBO", "T_TRANSACCION", "INMOVILIZACION",
+                                "OTROS_GASTOS", "OBSERVACION"]:
+                        df[col] = None
+
+                    st.session_state["pid_df_area_banco"] = df
+                    st.session_state["no_encontradas"] = []
+
+                    df_resultado, alertas = alistar_informacion(
+                        df, st.session_state.archivo_clientes
+                    )
+                    st.session_state["pid_df_sheet1_base"]    = df_resultado
+                    st.session_state["pid_df_sheet1_alertas"] = alertas
+                    st.session_state["distribuciones_confirmadas"] = None
+
+                    if not alertas:
+                        st.session_state["pid_df_sheet1"] = df_resultado
+                        st.success(f"✅ Información alistada. {len(df_resultado)} registro(s) procesados.")
+
+                    no_enc = st.session_state.get("no_encontradas", [])
+                    if no_enc:
+                        st.warning(
+                            f"⚠️ {len(no_enc)} cédula(s) todavía no se encuentran en "
+                            "Clientes Activos. Verifica que la cédula esté bien escrita "
+                            "o que el cliente ya esté registrado allí, y vuelve a intentar."
+                        )
+            except Exception as e:
+                st.error(f"❌ Error al alistar: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+
+    if st.session_state.get("pid_df_sheet1_alertas"):
+        alertas = st.session_state["pid_df_sheet1_alertas"]
+        try:
+            _resolver_escenarios_multifactura(alertas)
+        except Exception:
+            pass
+
+        if st.session_state.get("distribuciones_confirmadas") is not None:
+            df_base  = st.session_state.get("pid_df_sheet1_base", pd.DataFrame())
+            df_extra = st.session_state["distribuciones_confirmadas"]
+            df_final = pd.concat([df_base, df_extra], ignore_index=True)
+            st.session_state["pid_df_sheet1"] = df_final
+            st.success(f"✅ Información alistada. {len(df_final)} registro(s) procesados.")
+
+    if st.session_state.get("pid_df_sheet1") is not None:
+        st.markdown("---")
+        st.markdown("#### Vista previa de información alistada")
+        st.dataframe(st.session_state["pid_df_sheet1"], use_container_width=True)
+
+        st.markdown("---")
+        if st.button(
+            "📤  Generar Planos y Compensación", type="primary",
+            use_container_width=True, key="btn_generar_pid"
+        ):
+            with st.spinner("Generando archivos..."):
+                try:
+                    resultado_planos = crear_planos(
+                        st.session_state["pid_df_sheet1"],
+                        st.session_state.config,
+                        st.session_state["pid_df_area_banco"],
+                        "bancarios"
+                    )
+                    st.success(f"✅ Planos: {resultado_planos}")
+                except Exception as e:
+                    st.error(f"❌ Error generando planos: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+                try:
+                    resultado_comp = crear_compensaciones(
+                        st.session_state["pid_df_area_banco"],
+                        st.session_state.config,
+                        "bancarios"
+                    )
+                    st.success(f"✅ Compensación: {resultado_comp}")
+                except Exception as e:
+                    st.error(f"❌ Error generando compensación: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
