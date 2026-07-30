@@ -156,7 +156,7 @@ def _construir_cash_receipt(df, empresa, solo_cuota=None, inmovilizadas=None):
         rows.append({
             "id":                          consecutivo,
             "codigoTipoDocumento":         "DC",
-            "codigoCentroCosto":           104,
+            "codigoCentroCosto":           102,
             "fechaDocumento":              _fecha(row.get("FECHA_DOCUMENTO")),
             "fechaPago":                   _fecha(row.get("FECHA")),
             "detalle":                     row.get("DETALLE", ""),
