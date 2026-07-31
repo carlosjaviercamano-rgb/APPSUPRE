@@ -4,6 +4,7 @@ import re
 import io
 import os
 import openpyxl
+from datetime import datetime as _dt
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
@@ -38,7 +39,7 @@ def _render_menu():
     st.markdown("### Selecciona el tipo de conversión")
     st.markdown("<br>", unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
 
     with col1:
         st.markdown("""
@@ -71,20 +72,6 @@ def _render_menu():
         if st.button("Entrar →", key="btn_bancolombia", use_container_width=True, type="primary"):
             st.session_state.submodulo_convertidor = "bancolombia"
             st.rerun()
-
-    with col3:
-        st.markdown("""
-        <div style="background:#1a1f2e;border:1px solid #2d3548;border-radius:12px;
-                    padding:1.5rem;text-align:center;">
-            <div style="font-size:2.5rem">➕</div>
-            <div style="font-weight:700;color:#fff;margin-top:0.5rem;font-size:1rem">
-                Próximamente</div>
-            <div style="color:#64748b;font-size:0.8rem;margin-top:0.3rem">
-                Nuevos convertidores</div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.button("Próximamente", key="btn_prox2", use_container_width=True, disabled=True)
 
 
 def _render_volver():
@@ -383,7 +370,7 @@ def _generar_excel_lst(datos, nombre_base):
             fecha_pago = reg["FECHA DE PAGO"]
             try:
                 from datetime import datetime as _dt
-                fecha_pago = _dt.strptime(fecha_pago, "%Y-%m-%d").strftime("%d-%m-%Y")
+                fecha_pago = _dt.strptime(fecha_pago, "%Y-%m-%d")
             except Exception:
                 pass
             vals = [
@@ -401,6 +388,8 @@ def _generar_excel_lst(datos, nombre_base):
                 cell.alignment = align_center if ci != 1 else align_left
                 if ci in (1, 2, 3, 4, 5):
                     cell.number_format = "General"
+                if ci == 6:
+                    cell.number_format = "DD/MM/YYYY"
 
         n_reg      = len(sec["registros"])
         fila_datos_inicio = 4
@@ -623,7 +612,7 @@ def _parsear_pdf_bancolombia(archivo):
                         except: pass
 
                     pending = {
-                        "FECHA":          fecha_text.replace("/", "-"),
+                        "FECHA":          _dt.strptime(fecha_text.strip(), "%Y/%m/%d"),
                         "DESCRIPCION":    gc(COLS["DESCRIPCION"]),
                         "SUCURSAL/CANAL": gc(COLS["SUCURSAL_CANAL"]),
                         "REFERENCIA 1":   gc(COLS["REFERENCIA_1"]),
@@ -744,6 +733,8 @@ def _generar_excel_bancolombia(datos):
             cell.font      = font_base
             cell.border    = borde
             cell.alignment = align_c if ci != 2 else align_l
+            if ci == 1:
+                cell.number_format = "D/MM/YYYY"
             if ci == 7:
                 cell.number_format = "General"
 
