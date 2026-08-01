@@ -1073,6 +1073,73 @@ def render_generar_archivos():
 
     st.markdown("---")
 
+    # ── 5. Pagos por Error de Causaciones ────────────────────────────────
+    st.markdown("#### ⚠️ Pagos por Error de Causaciones")
+    st.caption(
+        "Pega las cédulas que deben excluirse de la compensación normal. Se "
+        "generará un archivo de compensación aparte solo con esas cédulas, "
+        "con la fecha de documento que definas aquí."
+    )
+
+    col_fdoc_causa, col_btn_causa = st.columns([3, 1])
+    with col_fdoc_causa:
+        fecha_doc_causaciones = st.text_input(
+            "Fecha Documento para aplicar a toda la tabla",
+            key="causaciones_fecha_doc_masiva",
+            placeholder="Ej: 20/07/2026"
+        )
+    with col_btn_causa:
+        st.markdown("<br>", unsafe_allow_html=True)
+        aplicar_fecha_causa = st.button(
+            "📅  Aplicar a toda la tabla", use_container_width=True, key="btn_aplicar_fecha_causa"
+        )
+
+    columnas_causa = ["CEDULA", "FECHA_DOCUMENTO"]
+
+    if "causaciones_editor_version" not in st.session_state:
+        st.session_state["causaciones_editor_version"] = 0
+    causa_editor_key = f"editor_causaciones_{st.session_state['causaciones_editor_version']}"
+
+    if "causaciones_seed_df" not in st.session_state:
+        st.session_state["causaciones_seed_df"] = pd.DataFrame(
+            {c: pd.Series(dtype="str") for c in columnas_causa}
+        )
+    plantilla_causa = st.session_state["causaciones_seed_df"]
+
+    st.markdown("**⬆️ Pega aquí las cédulas copiadas desde Excel:**")
+    df_causaciones_editado = st.data_editor(
+        plantilla_causa,
+        num_rows="dynamic",
+        use_container_width=True,
+        key=causa_editor_key,
+        column_config={
+            "CEDULA":          st.column_config.TextColumn("Cédula"),
+            "FECHA_DOCUMENTO": st.column_config.TextColumn("Fecha Documento (tal cual la pegues)"),
+        }
+    )
+
+    if aplicar_fecha_causa:
+        if not fecha_doc_causaciones.strip():
+            st.warning("⚠️ Escribe primero una fecha en el campo de arriba.")
+        else:
+            df_con_datos_causa = df_causaciones_editado.copy()
+            mask_con_datos_causa = df_con_datos_causa["CEDULA"].astype(str).str.strip().ne("")
+            df_con_datos_causa.loc[mask_con_datos_causa, "FECHA_DOCUMENTO"] = fecha_doc_causaciones.strip()
+            st.session_state["causaciones_seed_df"] = df_con_datos_causa
+            st.session_state["causaciones_editor_version"] += 1
+            st.rerun()
+
+    if st.button("🔄  Limpiar tabla de causaciones", key="limpiar_causaciones"):
+        st.session_state["causaciones_editor_version"] += 1
+        st.session_state["causaciones_seed_df"] = pd.DataFrame(
+            {c: pd.Series(dtype="str") for c in columnas_causa}
+        )
+        st.rerun()
+
+    st.session_state["df_causaciones_actual"] = df_causaciones_editado
+
+    st.markdown("---")
+
     with col1:
         st.markdown("#### 📄 Planos por empresa")
         st.caption("Genera CashReceipt, Services y PaymentMethod para cada empresa.")
@@ -1128,14 +1195,72 @@ def render_generar_archivos():
             from generar_compensaciones import crear_compensaciones
             with st.spinner("Generando compensaciones..."):
                 try:
+                    df_banco_comp = st.session_state.df_area_banco.copy()
+
+                    # Separar cédulas de "Pagos por Error de Causaciones"
+                    df_causa = st.session_state.get("df_causaciones_actual")
+                    cedulas_causa_map = {}
+                    if df_causa is not None and not df_causa.empty:
+                        for _, r in df_causa.iterrows():
+                            ced = str(r.get("CEDULA", "")).strip()
+                            fdoc = str(r.get("FECHA_DOCUMENTO", "")).strip()
+                            if ced:
+                                cedulas_causa_map[ced] = fdoc
+
+                    if cedulas_causa_map:
+                        mask_causa = df_banco_comp["CEDULA"].astype(str).str.strip().isin(cedulas_causa_map.keys())
+
+                        # ── El archivo "aparte" de causaciones es igual en ambos casos:
+                        # solo las cédulas de esta tabla, una a una (estilo Pendiente por ID)
+                        df_causaciones = df_banco_comp[mask_causa].copy()
+                        df_causaciones["FECHA_DOCUMENTO"] = df_causaciones["FECHA_DOCUMENTO"].astype(object)
+                        for ced, fdoc in cedulas_causa_map.items():
+                            if fdoc:
+                                mask_ced = df_causaciones["CEDULA"].astype(str).str.strip() == ced
+                                df_causaciones.loc[mask_ced, "FECHA_DOCUMENTO"] = fdoc
+                        from generar_gastos_bancarios import _parsear_fecha_mixta
+                        df_causaciones["FECHA_DOCUMENTO"] = _parsear_fecha_mixta(df_causaciones["FECHA_DOCUMENTO"])
+
+                        if st.session_state.tipo_pago == "bancarios":
+                            # Bancarios: se excluyen del archivo normal
+                            df_normal = df_banco_comp[~mask_causa].copy()
+                        else:
+                            # Recaudos: NO se excluyen del archivo normal, se marcan
+                            # "NO EXISTE" para que _generar_recaudos() las lleve a la
+                            # cuenta 141299011 en vez de acreditarlas a la cédula
+                            # (aunque sí sabemos quién es).
+                            df_normal = df_banco_comp.copy()
+                            if "RECIBOS" not in df_normal.columns:
+                                df_normal["RECIBOS"] = None
+                            df_normal["RECIBOS"] = df_normal["RECIBOS"].astype(object)
+                            df_normal.loc[mask_causa, "RECIBOS"] = "NO EXISTE"
+                    else:
+                        df_normal = df_banco_comp
+                        df_causaciones = None
+
                     resultado = crear_compensaciones(
-                        st.session_state.df_area_banco,
+                        df_normal,
                         st.session_state.config,
                         st.session_state.tipo_pago
                     )
                     st.success(f"✅ {resultado}")
+
+                    if df_causaciones is not None and not df_causaciones.empty:
+                        st.markdown("---")
+                        # El archivo de causaciones siempre se genera "una a una"
+                        # (estilo bancarios/Pendiente por ID), sin importar si el
+                        # trabajo actual es por bancarios o por recaudos.
+                        resultado_causa = crear_compensaciones(
+                            df_causaciones,
+                            st.session_state.config,
+                            "bancarios",
+                            prefijo="COMPENSACION_CAUSACIONES"
+                        )
+                        st.success(f"✅ Causaciones: {resultado_causa}")
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
 
     # ── Consecutivos de compensación ─────────────────────────────────────
     st.markdown("---")

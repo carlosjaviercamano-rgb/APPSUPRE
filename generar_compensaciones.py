@@ -12,7 +12,7 @@ NIT_ENTIDAD_BANCARIOS = {
     "DAVIVIENDA":  "860034313",
     "PSE":         "830078512",
     "EFECTY":      "830131993",
-    "RECORD":      "111111111",
+    "RECORD":      "800040390",
     "OCCIDENTE":   "860002395",
 }
 CODIGO_CENTRO_COSTO   = "102"
@@ -27,7 +27,7 @@ ENTIDADES_RECAUDO = {
 }
 
 
-def crear_compensaciones(df_area_banco, config, tipo_pago="bancarios"):
+def crear_compensaciones(df_area_banco, config, tipo_pago="bancarios", prefijo="COMPENSACION"):
     if df_area_banco is None or df_area_banco.empty:
         raise ValueError("No hay datos en Área de Banco para generar compensaciones.")
 
@@ -50,7 +50,7 @@ def crear_compensaciones(df_area_banco, config, tipo_pago="bancarios"):
             continue
 
         fecha_str = pd.Timestamp(fecha_doc).strftime("%d_%m_%Y")
-        nombre    = f"COMPENSACION_{fecha_str}_{hora_str}.xlsx"
+        nombre    = f"{prefijo}_{fecha_str}_{hora_str}.xlsx"
 
         if tipo_pago == "bancarios":
             buffer = _generar_bancarios(df_grupo)
@@ -86,28 +86,28 @@ def crear_compensaciones(df_area_banco, config, tipo_pago="bancarios"):
             zf.writestr(arch["nombre"], arch["buffer"].read())
     zip_buffer.seek(0)
 
-    zip_nombre = f"COMPENSACIONES_{hora_str}.zip"
+    zip_nombre = f"{prefijo}_{hora_str}.zip"
 
-    st.markdown("#### 📥 Descargar compensaciones generadas:")
+    st.markdown(f"#### 📥 Descargar {prefijo.replace('_', ' ').title()} generadas:")
     st.download_button(
-        label=f"⬇️  Descargar todas las compensaciones ({len(archivos_generados)} archivos)",
+        label=f"⬇️  Descargar todas ({len(archivos_generados)} archivos)",
         data=zip_buffer,
         file_name=zip_nombre,
         mime="application/zip",
-        key="dl_todos_comp",
+        key=f"dl_todos_{prefijo}",
         type="primary",
         use_container_width=True
     )
 
-    with st.expander("📂 Descargar individualmente"):
+    with st.expander(f"📂 Descargar individualmente — {prefijo.replace('_', ' ').title()}"):
         for arch in archivos_generados:
             arch["buffer"].seek(0)
             st.download_button(
-                label=f"⬇️  Compensación {arch['fecha']}",
+                label=f"⬇️  {prefijo.replace('_', ' ').title()} {arch['fecha']}",
                 data=arch["buffer"],
                 file_name=arch["nombre"],
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"dl_comp_{arch['fecha']}"
+                key=f"dl_{prefijo}_{arch['fecha']}"
             )
 
     return f"{len(archivos_generados)} compensaciones generadas correctamente."
