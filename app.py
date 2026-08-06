@@ -182,6 +182,14 @@ st.markdown("""
     [data-testid="collapsedControl"] {
         z-index: 9999 !important;
     }
+    /* Fondo con patrón de puntos muy sutil en el área de contenido
+       principal (no en el sidebar), solo para dar textura sin competir
+       visualmente con tablas y datos. */
+    [data-testid="stAppViewContainer"] > .main,
+    [data-testid="stMain"] {
+        background-image: radial-gradient(circle, rgba(255,255,255,0.035) 1px, transparent 1px) !important;
+        background-size: 22px 22px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
