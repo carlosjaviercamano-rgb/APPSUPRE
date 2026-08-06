@@ -177,19 +177,54 @@ st.markdown("""
         color: #94a3b8 !important;
     }
 
-    /* Boton colapsar sidebar siempre visible */
+    /* Boton colapsar sidebar (nativo, se deja tal cual; el botón flotante
+       de más abajo es el que garantiza que siempre se pueda expandir/colapsar) */
     [data-testid="collapsedControl"] {
-        display: flex !important;
-        visibility: visible !important;
-        z-index: 9999 !important;
-    }
-    [data-testid="stSidebarCollapseButton"] button {
-        display: flex !important;
-        visibility: visible !important;
         z-index: 9999 !important;
     }
 </style>
 """, unsafe_allow_html=True)
+
+import streamlit.components.v1 as _components
+_components.html("""
+<script>
+(function() {
+    function crearBotonFlotante() {
+        var doc = window.parent.document;
+        if (doc.getElementById('supre-toggle-sidebar')) return;
+
+        var btn = doc.createElement('button');
+        btn.id = 'supre-toggle-sidebar';
+        btn.innerHTML = '&#9776;';
+        btn.style.position = 'fixed';
+        btn.style.top = '0.6rem';
+        btn.style.left = '0.6rem';
+        btn.style.zIndex = '999999';
+        btn.style.background = '#1a1f2e';
+        btn.style.color = '#ffffff';
+        btn.style.border = '1px solid #2d3548';
+        btn.style.borderRadius = '6px';
+        btn.style.padding = '0.35rem 0.6rem';
+        btn.style.fontSize = '1rem';
+        btn.style.cursor = 'pointer';
+        btn.title = 'Mostrar / ocultar menú';
+
+        btn.onclick = function() {
+            var nativo = doc.querySelector('[data-testid="collapsedControl"] button')
+                      || doc.querySelector('[data-testid="stSidebarCollapseButton"] button')
+                      || doc.querySelector('[data-testid="collapsedControl"]')
+                      || doc.querySelector('[data-testid="stSidebarCollapseButton"]');
+            if (nativo) { nativo.click(); }
+        };
+
+        doc.body.appendChild(btn);
+    }
+
+    crearBotonFlotante();
+    setInterval(crearBotonFlotante, 1000);
+})();
+</script>
+""", height=0)
 
 
 # ─── Autenticación ────────────────────────────────────────────────────────
