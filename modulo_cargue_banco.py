@@ -363,12 +363,24 @@ def render_extraccion():
         df = st.session_state["df_cargue_banco"]
         st.markdown("---")
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Total movimientos", len(df))
-        c2.metric("Entidades", df["ENTIDAD"].nunique() if "ENTIDAD" in df.columns else 0)
         if "VALOR" in df.columns:
-            total = pd.to_numeric(df["VALOR"], errors="coerce").sum()
-            c3.metric("Valor total", f"${total:,.0f}")
+            df["VALOR"] = pd.to_numeric(df["VALOR"], errors="coerce")
+
+        entidades = df["ENTIDAD"].dropna().unique().tolist() if "ENTIDAD" in df.columns else []
+
+        n_cols = 1 + len(entidades) + (1 if "VALOR" in df.columns else 0)
+        cols = st.columns(n_cols)
+        cols[0].metric("Total movimientos", len(df))
+
+        idx = 1
+        for entidad in entidades:
+            valor_entidad = df.loc[df["ENTIDAD"] == entidad, "VALOR"].sum() if "VALOR" in df.columns else 0
+            cols[idx].metric(str(entidad), f"${valor_entidad:,.0f}")
+            idx += 1
+
+        if "VALOR" in df.columns:
+            total = df["VALOR"].sum()
+            cols[idx].metric("Valor total", f"${total:,.0f}")
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("**📊 Movimientos extraídos:**")
