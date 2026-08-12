@@ -43,7 +43,7 @@ CUENTAS_DEBITO_GASTOS = {
 # que aparecen nuevas variantes de texto.
 _PALABRAS_CLAVE = [
     (("IVA",),                                                "IVA"),
-    (("SERVICIO", "COMISION", "COMISIÓN", "COMIS", "ND COBRO DISP", "COBRO TRANSFERENCIA", "CARGO POR TRANSACCIONES VARIAS", "COBRO TRANSF. ENVIADA OTRA ENTIDAD"), "COMISION"),
+    (("SERVICIO", "COMISION", "COMISIÓN", "COMIS", "ND COBRO DISP", "COBRO TRANSFERENCIA", "CARGO POR TRANSACCIONES VARIAS", "COBRO TRANSF. ENVIADA OTRA ENTIDAD", "ND COBRO RECAUD DAVIPLATA"), "COMISION"),
     (("GMF", "GRAVAMEN", "4X1000", "IMPTO GOBIERNO"),         "GMF 4X1000"),
     (("GIRO",),                                                "SOBRE GIRO"),
 ]
@@ -67,12 +67,19 @@ def obtener_centro_costo(empresa):
 
 def detectar_concepto_cargue(concepto_banco):
     """Detecta el CONCEPTO CARGUE a partir del texto del concepto del banco."""
+    import unicodedata
     texto = str(concepto_banco).upper()
-    # Normalizar espacios: reemplaza espacios "duros" (non-breaking space,
-    # comunes al copiar desde Excel) por espacios normales, y colapsa
-    # espacios repetidos. Sin esto, un espacio distinto puede hacer que
-    # una palabra clave no cruce aunque se vea idéntica a simple vista.
-    texto = texto.replace("\xa0", " ")
+    # Normalización agresiva: cualquier caracter Unicode "separador" (Zs,
+    # incluye espacio normal, espacio duro/NBSP, y otras variantes menos
+    # comunes) se convierte en espacio normal; cualquier caracter de
+    # "control/formato" invisible (Cf/Cc, incluye espacio de ancho cero,
+    # etc.) se elimina por completo. Así no hace falta cazar uno por uno
+    # cada caracter invisible que pueda venir al copiar desde Excel.
+    texto = "".join(
+        " " if unicodedata.category(c).startswith("Z") else c
+        for c in texto
+        if not unicodedata.category(c).startswith("C")
+    )
     texto = " ".join(texto.split())
     for palabras, concepto in _PALABRAS_CLAVE:
         if any(p in texto for p in palabras):
