@@ -828,8 +828,7 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
 
     df["concilia_con_id"] = ""
 
-    if abs(suma_total) < 0.01:
-        df["concilia_con_id"] = "CONCILIADA"
+    if total_movimientos == 0:
         return df
 
     def _buscar_pares_internos(grupo):
