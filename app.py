@@ -190,6 +190,50 @@ st.markdown("""
         background-image: radial-gradient(circle, rgba(255,255,255,0.035) 1px, transparent 1px) !important;
         background-size: 22px 22px !important;
     }
+    /* Formulario de inicio de sesión: tarjeta centrada con gradiente
+       oscuro (verde/azul), campos con línea inferior en vez de caja
+       completa, y botón plano — inspirado en el estilo pedido. */
+    [data-testid="stForm"] {
+        background: linear-gradient(135deg, #123a3f 0%, #0d2b3a 55%, #0a1520 100%) !important;
+        border: 1px solid rgba(255,255,255,0.15) !important;
+        border-radius: 16px !important;
+        padding: 2.5rem 2rem !important;
+        max-width: 420px;
+        margin: 3rem auto !important;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.45);
+    }
+    [data-testid="stForm"] input {
+        background: transparent !important;
+        border: none !important;
+        border-bottom: 1px solid rgba(255,255,255,0.4) !important;
+        border-radius: 0 !important;
+        color: #ffffff !important;
+        padding-left: 0.2rem !important;
+    }
+    [data-testid="stForm"] input:focus {
+        border-bottom: 1px solid #5ec6c6 !important;
+        box-shadow: none !important;
+    }
+    [data-testid="stForm"] label {
+        color: rgba(255,255,255,0.75) !important;
+    }
+    [data-testid="stForm"] [data-testid="stFormSubmitButton"] button {
+        width: 100%;
+        background: rgba(255,255,255,0.08) !important;
+        border: 1px solid rgba(255,255,255,0.3) !important;
+        border-radius: 8px !important;
+        color: #ffffff !important;
+        padding: 0.6rem 0 !important;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        font-size: 0.85rem;
+        margin-top: 0.5rem;
+    }
+    [data-testid="stForm"] [data-testid="stFormSubmitButton"] button:hover {
+        background: rgba(255,255,255,0.16) !important;
+        border-color: #5ec6c6 !important;
+        color: #5ec6c6 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -248,7 +292,6 @@ if st.session_state.get('authentication_status') is False:
     st.error('❌ Usuario o contraseña incorrectos.')
     st.stop()
 elif st.session_state.get('authentication_status') is None:
-    st.warning('☝️ Ingresa tus credenciales para continuar.')
     st.stop()
 
 # ─── Ruta del archivo de configuración ────────────────────────────────────
