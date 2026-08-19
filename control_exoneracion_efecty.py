@@ -38,21 +38,27 @@ def clasificar_codigo(codigo_cajero):
     return None
 
 
+GRUPO_POR_DEFECTO = "SUPERGIROS Y OTROS"
+
+
 def contar_transacciones_por_grupo(codigos_cajero):
     """
     Recibe una lista de códigos CAJERO (uno por transacción, pueden repetirse)
     y devuelve un diccionario {grupo: cantidad} más la lista de códigos que
-    no se pudieron clasificar en ningún grupo.
+    NO estaban registrados en ninguna de las dos listas (se cuentan de todas
+    formas en GRUPO_POR_DEFECTO, pero se reportan aparte para que se sepa que
+    aparecieron códigos nuevos que valdría la pena revisar/registrar).
     """
     conteo = {nombre: 0 for nombre in GRUPOS.keys()}
-    no_clasificados = []
+    no_registrados = []
     for codigo in codigos_cajero:
         grupo = clasificar_codigo(codigo)
         if grupo:
             conteo[grupo] += 1
         else:
-            no_clasificados.append(codigo)
-    return conteo, no_clasificados
+            conteo[GRUPO_POR_DEFECTO] += 1
+            no_registrados.append(codigo)
+    return conteo, no_registrados
 
 
 # ══════════════════════════════════════════════════════════════════════════

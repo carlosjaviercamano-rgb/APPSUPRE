@@ -134,7 +134,7 @@ def render_efecty_record():
         todos_cajero = [
             reg.get("CAJERO") for sec in datos["secciones"] for reg in sec["registros"]
         ]
-        conteo_nuevo, no_clasificados = contar_transacciones_por_grupo(todos_cajero)
+        conteo_nuevo, no_registrados = contar_transacciones_por_grupo(todos_cajero)
 
         conteo_registrado_ahora = False
         try:
@@ -144,11 +144,12 @@ def render_efecty_record():
                 "📊 Conteo de exoneración actualizado — " +
                 ", ".join(f"{grupo}: +{cant}" for grupo, cant in conteo_nuevo.items())
             )
-            if no_clasificados:
-                codigos_unicos = sorted(set(no_clasificados))
+            if no_registrados:
+                codigos_unicos = sorted(set(no_registrados))
                 st.session_state["efecty_ultimo_aviso_no_clasificados"] = (
-                    f"⚠️ {len(no_clasificados)} transacción(es) con código CAJERO no "
-                    f"registrado en ningún grupo: {codigos_unicos[:15]}"
+                    f"⚠️ {len(no_registrados)} transacción(es) con código CAJERO que no estaba "
+                    f"en ninguna de las dos listas — se contaron en SUPERGIROS Y OTROS por "
+                    f"defecto. Códigos: {codigos_unicos[:15]}"
                     + (" ..." if len(codigos_unicos) > 15 else "")
                 )
             else:
