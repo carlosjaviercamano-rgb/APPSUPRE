@@ -7,3 +7,5 @@ bcrypt
 PyYAML
 xlrd
 pdfplumber==0.11.10
+gspread
+google-auth

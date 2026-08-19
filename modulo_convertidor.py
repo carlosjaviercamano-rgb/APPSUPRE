@@ -95,6 +95,10 @@ def render_efecty_record():
     </div>
     """, unsafe_allow_html=True)
 
+    from control_exoneracion_efecty import render_estado_exoneracion
+    render_estado_exoneracion()
+    st.markdown("---")
+
     archivo = st.file_uploader(
         "Sube el archivo de reporte (.lst)",
         type=["lst"],
@@ -108,6 +112,7 @@ def render_efecty_record():
 
     # Parsear
     try:
+        archivo.seek(0)
         contenido = archivo.read().decode("latin-1")
         datos     = _parsear_lst(contenido)
     except Exception as e:
@@ -117,6 +122,54 @@ def render_efecty_record():
     if not datos["secciones"]:
         st.error("❌ No se encontraron secciones válidas en el archivo. Verifica el formato.")
         return
+
+    # ── Conteo de exoneración por grupo (Efecty y Éxito / Supergiros y Otros) ──
+    # Se protege con una "llave" del archivo (nombre + tamaño) para no volver
+    # a contar el mismo archivo en cada rerun de Streamlit (ej. al hacer clic
+    # en el botón de descarga, que reejecuta todo el script de nuevo).
+    from control_exoneracion_efecty import contar_transacciones_por_grupo, registrar_transacciones
+
+    archivo_llave = f"{archivo.name}_{archivo.size}"
+    if st.session_state.get("efecty_ultimo_archivo_contado") != archivo_llave:
+        todos_cajero = [
+            reg.get("CAJERO") for sec in datos["secciones"] for reg in sec["registros"]
+        ]
+        conteo_nuevo, no_clasificados = contar_transacciones_por_grupo(todos_cajero)
+
+        conteo_registrado_ahora = False
+        try:
+            totales = registrar_transacciones(conteo_nuevo)
+            st.session_state["efecty_ultimo_archivo_contado"] = archivo_llave
+            st.session_state["efecty_ultimo_mensaje_conteo"] = (
+                "📊 Conteo de exoneración actualizado — " +
+                ", ".join(f"{grupo}: +{cant}" for grupo, cant in conteo_nuevo.items())
+            )
+            if no_clasificados:
+                codigos_unicos = sorted(set(no_clasificados))
+                st.session_state["efecty_ultimo_aviso_no_clasificados"] = (
+                    f"⚠️ {len(no_clasificados)} transacción(es) con código CAJERO no "
+                    f"registrado en ningún grupo: {codigos_unicos[:15]}"
+                    + (" ..." if len(codigos_unicos) > 15 else "")
+                )
+            else:
+                st.session_state["efecty_ultimo_aviso_no_clasificados"] = None
+            conteo_registrado_ahora = True
+        except Exception as e:
+            st.warning(f"⚠️ No se pudo actualizar el conteo de exoneración: {str(e)}")
+
+        # IMPORTANTE: st.rerun() va FUERA del try/except. Si quedara adentro,
+        # el "except Exception" atraparía la excepción especial que usa
+        # Streamlit internamente para recargar la página, cancelando la
+        # recarga en silencio (el guardado en Sheets sí ocurre, pero la
+        # tarjeta de arriba nunca se refresca).
+        if conteo_registrado_ahora:
+            st.rerun()
+
+    if st.session_state.get("efecty_ultimo_archivo_contado") == archivo_llave:
+        if st.session_state.get("efecty_ultimo_mensaje_conteo"):
+            st.info(st.session_state["efecty_ultimo_mensaje_conteo"])
+        if st.session_state.get("efecty_ultimo_aviso_no_clasificados"):
+            st.warning(st.session_state["efecty_ultimo_aviso_no_clasificados"])
 
     # Mostrar resumen
     st.success(f"✅ Archivo parseado: **{datos['codigo']} - {datos['empresa']}** | Fecha: {datos['fecha']}")
