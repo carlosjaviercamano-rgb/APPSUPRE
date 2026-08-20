@@ -38,7 +38,7 @@ def render():
             st.session_state.submodulo_dashboard = None
             st.rerun()
         st.markdown("<br>", unsafe_allow_html=True)
-        st.info("🚧 Informe Planilla Cartera — próximamente.")
+        render_obligaciones_proveedor()
 
 
 def _render_menu():
@@ -66,11 +66,11 @@ def _render_menu():
         st.markdown("""
         <div style="background:#1a1f2e;border:1px solid #2d3548;border-radius:12px;
                     padding:1.5rem;text-align:center;">
-            <div style="font-size:2.5rem">📋</div>
+            <div style="font-size:2.5rem">💰</div>
             <div style="font-weight:700;color:#fff;margin-top:0.5rem">
-                Informe Planilla Cartera</div>
+                Informe Obligaciones Proveedor</div>
             <div style="color:#64748b;font-size:0.8rem;margin-top:0.3rem">
-                Próximamente</div>
+                Estado general de las obligaciones</div>
         </div>
         """, unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1008,3 +1008,516 @@ function f(){{
 </body>
 </html>"""
     return html.encode("utf-8")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# INFORME OBLIGACIONES PROVEEDOR
+# ══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════
+# INFORME OBLIGACIONES PROVEEDOR
+# ══════════════════════════════════════════════════════════════════════════
+
+# Bancos conocidos: si el proveedor es "Jurídica" y su nombre contiene alguno
+# de estos, se clasifica como BANCARIOS en vez de PERSONAS JURIDICAS.
+BANCOS_CONOCIDOS = ["BANCOLOMBIA", "OCCIDENTE", "BANCO SERFINANZAS SAS",
+                    "BANCO DE BOGOTA", "DAVIVIENDA"]
+
+# Nombres de proveedor a corregir (el reporte trae "1  1" en vez de
+# "OCCIDENTE" para esa identificación) — esta corrección SÍ afecta la
+# clasificación (no solo la vista), porque de lo contrario Occidente no
+# se reconocería como banco.
+NOMBRES_VISUALES = {
+    "890300279": "OCCIDENTE",
+}
+
+
+def render_obligaciones_proveedor():
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#7c2d12,#b45309);border-radius:10px;
+                padding:1rem 1.5rem;margin-bottom:1rem;">
+        <h3 style="color:#fff;margin:0">💰 Informe Obligaciones Proveedor</h3>
+        <p style="color:#fed7aa;margin:0.2rem 0 0 0;font-size:0.85rem">
+            Estado general de obligaciones — bancarios, personas naturales y jurídicas</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    tab1, tab2 = st.tabs(["📂 1. Cargar y Procesar", "📊 2. Dashboard"])
+
+    with tab1:
+        _render_procesar_obligaciones()
+    with tab2:
+        _render_dashboard_obligaciones()
+
+
+def _render_procesar_obligaciones():
+    st.markdown("#### 📂 Archivo necesario")
+    st.caption(
+        "Un solo reporte (Athena) con la columna 'tipo_documento'. La "
+        "clasificación se arma sola: BANCARIOS (jurídicas que son banco), "
+        "PERSONAS JURÍDICAS (jurídicas que no son banco) y PERSONAS "
+        "NATURALES. Las obligaciones capitalizables se detectan automático "
+        "cuando la factura contiene 'CAP'."
+    )
+
+    reporte = st.file_uploader("Reporte de obligaciones (CSV)", type=["csv"],
+                                key="up_obl_reporte", label_visibility="collapsed")
+    if reporte:
+        st.session_state["obl_reporte"] = reporte
+        st.success(f"✅ {reporte.name}")
+    elif st.session_state.get("obl_reporte"):
+        st.success("✅ Ya cargado")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_btn, col_lim = st.columns([3, 1])
+    with col_btn:
+        procesar = st.button("⚙️ Procesar datos", type="primary",
+                              use_container_width=True, key="btn_procesar_obl")
+    with col_lim:
+        if st.button("🔄 Limpiar", use_container_width=True, key="btn_limpiar_obl"):
+            for k in ["obl_stats", "obl_reporte"]:
+                st.session_state.pop(k, None)
+            st.rerun()
+
+    if procesar:
+        if not st.session_state.get("obl_reporte"):
+            st.error("❌ Debes cargar el archivo.")
+        else:
+            with st.spinner("Procesando información..."):
+                try:
+                    stats = _procesar_obligaciones(st.session_state["obl_reporte"])
+                    st.session_state["obl_stats"] = stats
+                    st.success("✅ Datos procesados correctamente.")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+    stats = st.session_state.get("obl_stats")
+    if stats:
+        st.markdown("---")
+        st.markdown("#### 📊 Resumen")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total obligaciones", f"{stats['total_obligaciones']:,}")
+        c2.metric("Saldo real total", f"${stats['saldo_total']:,.0f}")
+        c3.metric("Monto desembolsado", f"${stats['monto_total']:,.0f}")
+        c4.metric("Tasa de fondeo", f"{stats['tasa_fondeo_general']:.2f}%")
+
+        if stats["no_especificado_cant"] > 0:
+            st.warning(
+                f"⚠️ {stats['no_especificado_cant']} obligación(es) con un valor de "
+                f"'tipo_documento' distinto a 'Natural'/'Jurídica' — se marcaron "
+                f"como 'NO ESPECIFICADO'. Revisa esos registros en el reporte."
+            )
+
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            st.markdown("**Por tipo de obligación:**")
+            st.dataframe(stats["por_tipo"], use_container_width=True, hide_index=True)
+        with col_t2:
+            st.markdown("**Por empresa:**")
+            st.dataframe(stats["por_empresa"], use_container_width=True, hide_index=True)
+
+
+def _render_dashboard_obligaciones():
+    stats = st.session_state.get("obl_stats")
+    if not stats:
+        st.info("📂 Primero procesa los datos en la pestaña **1. Cargar y Procesar**.")
+        return
+
+    st.markdown("#### 📊 Generar Dashboard")
+    st.caption(
+        "Se genera un archivo HTML independiente con el dashboard completo "
+        "(navegación General / Bancarios / Personas Naturales / Personas "
+        "Jurídicas dentro del mismo archivo). Descárgalo y publícalo en "
+        "Netlify para compartirlo con gerencia."
+    )
+
+    html = _generar_html_obligaciones(stats)
+    nombre_html = f"DASHBOARD_OBLIGACIONES_PROVEEDOR_{datetime.now().strftime('%Y%m%d')}.html"
+
+    st.download_button(
+        label="⬇️ Descargar Dashboard (HTML)",
+        data=html.encode("utf-8"),
+        file_name=nombre_html,
+        mime="text/html",
+        type="primary",
+        use_container_width=True,
+        key="dl_obl_html"
+    )
+
+
+def _nombre_proveedor_corregido(row):
+    identificacion = str(row.get("identificacion_proveedor", "")).strip()
+    return NOMBRES_VISUALES.get(identificacion, str(row.get("nombre_proveedor", "")).strip())
+
+
+def _clasificar_tipo_obligacion(row):
+    nombre = _nombre_proveedor_corregido(row).upper()
+    tipo_doc = str(row.get("tipo_documento", "")).strip().upper()
+    # Normalizar tilde de "JURÍDICA" -> "JURIDICA" para comparar sin depender
+    # de que el acento venga siempre igual en el reporte.
+    tipo_doc_norm = tipo_doc.replace("Í", "I")
+
+    if tipo_doc_norm == "JURIDICA":
+        es_banco = any(banco in nombre for banco in BANCOS_CONOCIDOS)
+        return "BANCARIOS" if es_banco else "PERSONAS JURIDICAS"
+    elif tipo_doc_norm == "NATURAL":
+        return "PERSONAS NATURALES"
+    else:
+        return "NO ESPECIFICADO"
+
+
+def _tasa_ponderada(df_subset):
+    """Tasa promedio ponderada por el monto desembolsado de cada crédito."""
+    monto_total = df_subset["monto_desembolsado"].sum()
+    if monto_total == 0:
+        return 0.0
+    return (df_subset["tasa"] * df_subset["monto_desembolsado"]).sum() / monto_total
+
+
+def _fila_tabla_obligacion(row):
+    return (
+        "<tr><td>{empresa}</td><td>{prov}</td><td>{fact}</td>"
+        "<td>${monto:,.0f}</td><td>{tasa:.2f}%</td><td>{plazo}</td>"
+        "<td>${cuota:,.0f}</td><td>${saldo:,.0f}</td><td>{period}</td>"
+        "<td>{fecha}</td></tr>"
+    ).format(
+        empresa=row.get("empresa", ""),
+        prov=_nombre_proveedor_corregido(row),
+        fact=row.get("factura", ""),
+        monto=row.get("monto_desembolsado", 0) or 0,
+        tasa=row.get("tasa", 0) or 0,
+        plazo=row.get("plazo", ""),
+        cuota=row.get("valor_cuota", 0) or 0,
+        saldo=row.get("saldo_real", 0) or 0,
+        period=row.get("periodicidad_pago", ""),
+        fecha=row.get("fecha_pago", ""),
+    )
+
+
+def _procesar_obligaciones(archivo_csv):
+    df = pd.read_csv(archivo_csv)
+    df.columns = [c.strip() for c in df.columns]
+
+    cols_num = ["monto_desembolsado", "tasa", "spread", "plazo", "valor_cuota",
+                "capital", "interes", "iva", "seguro", "fondo_garantias", "saldo_real"]
+    for col in cols_num:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    # Capitalizable: la factura contiene "CAP" (sin importar mayúsculas)
+    df["periodicidad_pago"] = df["factura"].astype(str).str.upper().str.contains("CAP").map(
+        {True: "CAPITALIZABLE", False: "MENSUAL"}
+    )
+
+    # Tipo de obligación: se arma con tipo_documento + si el nombre es un banco
+    df["tipo_obligacion"] = df.apply(_clasificar_tipo_obligacion, axis=1)
+
+    por_tipo = df.groupby("tipo_obligacion").agg(
+        cantidad=("factura", "count"), saldo=("saldo_real", "sum")
+    ).reset_index().sort_values("saldo", ascending=False)
+
+    por_empresa = df.groupby("empresa").agg(
+        cantidad=("factura", "count"), saldo=("saldo_real", "sum")
+    ).reset_index().sort_values("saldo", ascending=False)
+
+    return {
+        "df": df,
+        "total_obligaciones": len(df),
+        "saldo_total": df["saldo_real"].sum(),
+        "monto_total": df["monto_desembolsado"].sum(),
+        "valor_cuota_total": df["valor_cuota"].sum(),
+        "tasa_fondeo_general": _tasa_ponderada(df),
+        "no_especificado_cant": int((df["tipo_obligacion"] == "NO ESPECIFICADO").sum()),
+        "por_tipo": por_tipo,
+        "por_empresa": por_empresa,
+    }
+
+
+def _generar_html_obligaciones(stats):
+    import json as _json
+
+    df = stats["df"]
+    COLOR_BANCARIOS = "#185FA5"
+    COLOR_NATURALES = "#1D9E75"
+    COLOR_JURIDICAS = "#D97706"
+    COLOR_NOESP     = "#94A3B8"
+    EMPRESA_COLORS  = ["#185FA5", "#1D9E75", "#D97706", "#7C3AED", "#D85A30", "#0EA5E9"]
+
+    color_map = {"BANCARIOS": COLOR_BANCARIOS, "PERSONAS NATURALES": COLOR_NATURALES,
+                 "PERSONAS JURIDICAS": COLOR_JURIDICAS, "NO ESPECIFICADO": COLOR_NOESP}
+    id_map = {"BANCARIOS": "bancarios", "PERSONAS NATURALES": "naturales",
+              "PERSONAS JURIDICAS": "juridicas", "NO ESPECIFICADO": "noesp"}
+    nombre_map = {"BANCARIOS": "Bancarios", "PERSONAS NATURALES": "Personas Naturales",
+                  "PERSONAS JURIDICAS": "Personas Jurídicas", "NO ESPECIFICADO": "No Especificado"}
+
+    orden_tipos = ["BANCARIOS", "PERSONAS NATURALES", "PERSONAS JURIDICAS", "NO ESPECIFICADO"]
+    tipos_presentes = [t for t in orden_tipos if (df["tipo_obligacion"] == t).any()]
+
+    tabs_botones = ['<button class="tab-btn active" onclick="mostrarTab(\'general\',this)">General</button>']
+    tabs_paneles = []
+
+    # ══════════════════════════════════════════════════════════════════
+    # PANEL GENERAL
+    # ══════════════════════════════════════════════════════════════════
+    total_cant = stats["total_obligaciones"]
+    saldo_total_general = stats["saldo_total"]
+
+    por_tipo_rows = ""
+    for _, r in stats["por_tipo"].iterrows():
+        pct_cant = (r["cantidad"] / total_cant * 100) if total_cant else 0
+        por_tipo_rows += "<tr><td>{}</td><td>{:,} ({:.1f}%)</td><td>${:,.0f}</td></tr>".format(
+            nombre_map.get(r["tipo_obligacion"], r["tipo_obligacion"]), int(r["cantidad"]), pct_cant, r["saldo"])
+
+    por_empresa_rows = ""
+    for _, r in stats["por_empresa"].iterrows():
+        pct_saldo = (r["saldo"] / saldo_total_general * 100) if saldo_total_general else 0
+        por_empresa_rows += "<tr><td>{}</td><td>{:,}</td><td>${:,.0f} ({:.1f}%)</td></tr>".format(
+            r["empresa"], int(r["cantidad"]), r["saldo"], pct_saldo)
+
+    labels_tipo = _json.dumps([nombre_map.get(t, t) for t in stats["por_tipo"]["tipo_obligacion"].tolist()])
+    data_tipo_cant = _json.dumps(stats["por_tipo"]["cantidad"].tolist())
+    colores_tipo = _json.dumps([
+        color_map.get(t, "#999") for t in stats["por_tipo"]["tipo_obligacion"].tolist()
+    ])
+    labels_empresa = _json.dumps(stats["por_empresa"]["empresa"].tolist())
+    data_empresa_saldo = _json.dumps(stats["por_empresa"]["saldo"].tolist())
+    colores_empresa = _json.dumps(
+        [EMPRESA_COLORS[i % len(EMPRESA_COLORS)] for i in range(len(stats["por_empresa"]))]
+    )
+
+    panel_general = """
+    <div id="tab-general" class="tab-panel">
+      <div class="kpi-grid">
+        <div class="kpi"><p class="kpi-label">Total obligaciones</p><p class="kpi-val">{total}</p></div>
+        <div class="kpi"><p class="kpi-label">Saldo real total</p><p class="kpi-val">{saldo_total}</p></div>
+        <div class="kpi"><p class="kpi-label">Monto desembolsado</p><p class="kpi-val">{monto_total}</p></div>
+        <div class="kpi"><p class="kpi-label">Tasa de fondeo</p><p class="kpi-val">{tasa_fondeo}</p><p class="kpi-sub">ponderada por monto desembolsado</p></div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-card">
+          <p class="chart-title">Obligaciones por tipo</p>
+          <div style="position:relative;width:100%;height:220px"><canvas id="donutTipo"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <p class="chart-title">Saldo real por empresa</p>
+          <div style="position:relative;width:100%;height:220px"><canvas id="barEmpresa"></canvas></div>
+        </div>
+      </div>
+      <div class="chart-row">
+        <div class="chart-card">
+          <p class="chart-title">Resumen por tipo</p>
+          <table class="dt"><thead><tr><th>Tipo</th><th>Cantidad</th><th>Saldo real</th></tr></thead>
+          <tbody>{por_tipo_rows}</tbody></table>
+        </div>
+        <div class="chart-card">
+          <p class="chart-title">Resumen por empresa</p>
+          <table class="dt"><thead><tr><th>Empresa</th><th>Cantidad</th><th>Saldo real</th></tr></thead>
+          <tbody>{por_empresa_rows}</tbody></table>
+        </div>
+      </div>
+    </div>""".format(
+        total=total_cant,
+        saldo_total="${:,.0f}".format(saldo_total_general),
+        monto_total="${:,.0f}".format(stats["monto_total"]),
+        tasa_fondeo="{:.2f}%".format(stats["tasa_fondeo_general"]),
+        por_tipo_rows=por_tipo_rows,
+        por_empresa_rows=por_empresa_rows,
+    )
+    tabs_paneles.append(panel_general)
+
+    # ══════════════════════════════════════════════════════════════════
+    # PANELES DE DETALLE
+    # ══════════════════════════════════════════════════════════════════
+    canvas_counter = 0
+    charts_detalle_js = ""
+
+    for tipo in tipos_presentes:
+        canvas_counter += 1
+        canvas_id = "barDet{}".format(canvas_counter)
+        df_tipo = df[df["tipo_obligacion"] == tipo]
+        cantidad = len(df_tipo)
+        saldo = df_tipo["saldo_real"].sum()
+        monto = df_tipo["monto_desembolsado"].sum()
+        nombre_tipo = nombre_map[tipo]
+
+        por_emp_tipo = df_tipo.groupby("empresa").agg(
+            saldo=("saldo_real", "sum")
+        ).reset_index().sort_values("saldo", ascending=False)
+        labels_emp_tipo = _json.dumps(por_emp_tipo["empresa"].tolist())
+        data_emp_tipo = _json.dumps(por_emp_tipo["saldo"].tolist())
+
+        df_tipo_ordenado = df_tipo.copy()
+        df_tipo_ordenado["_nombre_orden"] = df_tipo_ordenado.apply(_nombre_proveedor_corregido, axis=1)
+        df_tipo_ordenado = df_tipo_ordenado.sort_values("_nombre_orden", key=lambda s: s.str.upper())
+        filas_html = "".join(_fila_tabla_obligacion(r) for _, r in df_tipo_ordenado.iterrows())
+
+        tabs_botones.append(
+            '<button class="tab-btn" onclick="mostrarTab(\'{id_tab}\',this)">{nombre}</button>'.format(
+                id_tab=id_map[tipo], nombre=nombre_tipo
+            )
+        )
+
+        color = color_map[tipo]
+        charts_detalle_js += """
+new Chart(document.getElementById('{canvas_id}'), {{
+  type: 'bar',
+  data: {{ labels: {labels}, datasets: [{{ data: {data}, backgroundColor: '{color}' }}] }},
+  options: {{ responsive:true, maintainAspectRatio:false,
+              plugins:{{legend:{{display:false}},
+                        datalabels:{{anchor:'end',align:'top',color:'#333',font:{{size:10}},
+                          formatter:function(v,ctx){{var d=ctx.chart.data.datasets[0].data;
+                          var t=d.reduce(function(a,b){{return a+b;}},0);
+                          return t?((v/t)*100).toFixed(1)+'%':'0%';}}}}}},
+              scales:{{y:{{ticks:{{callback:function(v){{return '$'+(v/1e6).toFixed(0)+'M';}}}}}}}} }}
+}});""".format(canvas_id=canvas_id, labels=labels_emp_tipo, data=data_emp_tipo, color=color)
+
+        if tipo == "BANCARIOS":
+            # Sin tarjeta de valor cuota: los bancarios no la necesitan.
+            kpis_html = """
+          <div class="kpi-grid">
+            <div class="kpi"><p class="kpi-label">Cantidad</p><p class="kpi-val">{cantidad}</p></div>
+            <div class="kpi"><p class="kpi-label">Saldo real</p><p class="kpi-val">{saldo}</p></div>
+            <div class="kpi"><p class="kpi-label">Monto desembolsado</p><p class="kpi-val">{monto}</p></div>
+            <div class="kpi"><p class="kpi-label">Tasa de fondeo</p><p class="kpi-val">{tasa_fondeo}</p><p class="kpi-sub">ponderada por monto desembolsado</p></div>
+          </div>""".format(
+                cantidad="{:,}".format(cantidad),
+                saldo="${:,.0f}".format(saldo),
+                monto="${:,.0f}".format(monto),
+                tasa_fondeo="{:.2f}%".format(_tasa_ponderada(df_tipo)),
+            )
+        else:
+            kpis_html = """
+          <div class="kpi-grid">
+            <div class="kpi"><p class="kpi-label">Cantidad</p><p class="kpi-val">{cantidad}</p></div>
+            <div class="kpi"><p class="kpi-label">Saldo real</p><p class="kpi-val">{saldo}</p></div>
+            <div class="kpi"><p class="kpi-label">Monto desembolsado</p><p class="kpi-val">{monto}</p></div>
+            <div class="kpi"><p class="kpi-label">Tasa de fondeo</p><p class="kpi-val">{tasa_fondeo}</p><p class="kpi-sub">ponderada por monto desembolsado</p></div>
+          </div>""".format(
+                cantidad="{:,}".format(cantidad),
+                saldo="${:,.0f}".format(saldo),
+                monto="${:,.0f}".format(monto),
+                tasa_fondeo="{:.2f}%".format(_tasa_ponderada(df_tipo)),
+            )
+
+        panel = """
+        <div id="tab-{id_tab}" class="tab-panel" style="display:none">
+          {kpis_html}
+          <div class="chart-card">
+            <p class="chart-title">Saldo real por empresa &mdash; {nombre_tipo}</p>
+            <div style="position:relative;width:100%;height:200px"><canvas id="{canvas_id}"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <p class="chart-title">Detalle de obligaciones &mdash; {nombre_tipo}</p>
+            <div class="table-wrap scroll">
+              <table class="dt">
+                <thead><tr><th>Empresa</th><th>Proveedor</th><th>Factura</th><th>Monto Desembolsado</th>
+                <th>Tasa</th><th>Plazo</th><th>Cuota</th><th>Saldo Real</th><th>Periodicidad</th><th>Fecha Pago</th></tr></thead>
+                <tbody>{filas}</tbody>
+              </table>
+            </div>
+          </div>
+        </div>""".format(
+            id_tab=id_map[tipo],
+            kpis_html=kpis_html,
+            nombre_tipo=nombre_tipo,
+            canvas_id=canvas_id,
+            filas=filas_html,
+        )
+        tabs_paneles.append(panel)
+
+    css = """*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f2;color:#1a1a1a;padding:24px 16px}
+.db-wrap{max-width:1080px;margin:0 auto}
+.db-header{display:flex;align-items:baseline;gap:12px;margin-bottom:1rem;flex-wrap:wrap}
+.db-title{font-size:20px;font-weight:600}
+.db-badge{font-size:11px;padding:3px 10px;border-radius:20px;background:#fde7d1;color:#9A5B13;font-weight:500}
+.tab-nav{display:flex;gap:6px;margin-bottom:1.25rem;flex-wrap:wrap;border-bottom:1px solid rgba(0,0,0,0.1);padding-bottom:0}
+.tab-btn{background:none;border:none;padding:10px 16px;font-size:13px;font-weight:500;color:#777;cursor:pointer;border-bottom:2px solid transparent}
+.tab-btn.active{color:#7c2d12;border-bottom:2px solid #b45309}
+.tab-btn:hover{color:#1a1a1a}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:1rem}
+.kpi{background:#fff;border:0.5px solid rgba(0,0,0,0.1);border-radius:10px;padding:14px 16px}
+.kpi-label{font-size:12px;color:#777;margin:0 0 5px}
+.kpi-val{font-size:22px;font-weight:600;margin:0;line-height:1.2;color:#1a1a1a}
+.kpi-sub{font-size:10.5px;color:#aaa;margin:4px 0 0}
+.chart-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1rem}
+.chart-card{background:#fff;border:0.5px solid rgba(0,0,0,0.1);border-radius:12px;padding:1rem 1.25rem;margin-bottom:1rem}
+.chart-title{font-size:14px;font-weight:600;margin:0 0 14px;color:#1a1a1a}
+.table-wrap{overflow-x:auto}
+table.dt{width:100%;border-collapse:collapse;font-size:12.5px}
+table.dt th{text-align:left;font-weight:600;color:#555;padding:8px 10px;border-bottom:1px solid rgba(0,0,0,0.1);white-space:nowrap;background:#fafaf8;position:sticky;top:0}
+table.dt td{padding:6px 10px;border-bottom:0.5px solid rgba(0,0,0,0.06);white-space:nowrap}
+table.dt tr:hover td{background:#fafaf8}
+.scroll{max-height:420px;overflow-y:auto;border-radius:8px;border:0.5px solid rgba(0,0,0,0.1)}
+@media(max-width:720px){.chart-row{grid-template-columns:1fr}}"""
+
+    html = """<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Obligaciones Proveedor</title>
+<style>{css}</style>
+</head>
+<body>
+<div class="db-wrap">
+  <div class="db-header">
+    <p class="db-title">Obligaciones Proveedor</p>
+    <span class="db-badge">Corte {fecha_corte}</span>
+  </div>
+  <div class="tab-nav">{tabs_botones}</div>
+  {tabs_paneles}
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+<script>
+Chart.register(ChartDataLabels);
+
+function mostrarTab(id, btn) {{
+  document.querySelectorAll('.tab-panel').forEach(function(p) {{ p.style.display = 'none'; }});
+  document.getElementById('tab-' + id).style.display = '';
+  document.querySelectorAll('.tab-btn').forEach(function(b) {{ b.classList.remove('active'); }});
+  btn.classList.add('active');
+}}
+
+new Chart(document.getElementById('donutTipo'), {{
+  type: 'doughnut',
+  data: {{ labels: {labels_tipo}, datasets: [{{ data: {data_tipo_cant}, backgroundColor: {colores_tipo}, borderWidth: 0 }}] }},
+  options: {{ responsive:true, maintainAspectRatio:false, cutout:'65%',
+              plugins:{{legend:{{position:'bottom',labels:{{boxWidth:10,font:{{size:11}}}}}},
+                        datalabels:{{color:'#fff',font:{{weight:'bold',size:11}},
+                          formatter:function(v,ctx){{var d=ctx.chart.data.datasets[0].data;
+                          var t=d.reduce(function(a,b){{return a+b;}},0);
+                          return t?((v/t)*100).toFixed(1)+'%':'0%';}}}}}} }}
+}});
+
+new Chart(document.getElementById('barEmpresa'), {{
+  type: 'bar',
+  data: {{ labels: {labels_empresa}, datasets: [{{ data: {data_empresa_saldo}, backgroundColor: {colores_empresa} }}] }},
+  options: {{ responsive:true, maintainAspectRatio:false,
+              plugins:{{legend:{{display:false}},
+                        datalabels:{{anchor:'end',align:'top',color:'#333',font:{{size:10}},
+                          formatter:function(v,ctx){{var d=ctx.chart.data.datasets[0].data;
+                          var t=d.reduce(function(a,b){{return a+b;}},0);
+                          return t?((v/t)*100).toFixed(1)+'%':'0%';}}}}}},
+              scales:{{y:{{ticks:{{callback:function(v){{return '$'+(v/1e6).toFixed(0)+'M';}}}}}}}} }}
+}});
+{charts_detalle_js}
+</script>
+</body>
+</html>""".format(
+        css=css,
+        fecha_corte=datetime.now().strftime("%d/%m/%Y"),
+        tabs_botones="".join(tabs_botones),
+        tabs_paneles="".join(tabs_paneles),
+        labels_tipo=labels_tipo,
+        data_tipo_cant=data_tipo_cant,
+        colores_tipo=colores_tipo,
+        labels_empresa=labels_empresa,
+        data_empresa_saldo=data_empresa_saldo,
+        colores_empresa=colores_empresa,
+        charts_detalle_js=charts_detalle_js,
+    )
+
+    return html
