@@ -200,7 +200,7 @@ def render_efecty_record():
     excel_bytes = _generar_excel_lst(datos, nombre_base)
 
     # Guardar automáticamente en carpeta fija
-    ruta_auto = r"C:\Users\ASUS\Desktop\BANCOS\CONVERTIDOR DE ARCHIVO"
+    ruta_auto = r"C:\Users\Usuario\Desktop\BANCOS\CONVERTIDOR DE ARCHIVO"
     if ruta_auto:
         try:
             import os
