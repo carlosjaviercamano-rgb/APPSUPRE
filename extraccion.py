@@ -39,6 +39,24 @@ COL_FRA      = 8   # I
 COL_RECIBO   = 9   # J
 
 
+def _limpiar_cedula(valor):
+    """
+    Limpia la cédula para que no quede con el sufijo '.0' que pandas agrega
+    cuando una columna numérica se mezcla con celdas vacías (se infiere
+    float64 en vez de int). Sin esto, '123456' se convierte en '123456.0'
+    y no cruza contra el archivo de Clientes Activos.
+    """
+    if pd.isna(valor):
+        return valor
+    s = str(valor).strip()
+    if s.endswith(".0"):
+        try:
+            return str(int(float(s)))
+        except Exception:
+            return s
+    return s
+
+
 def leer_hoja(archivo, nombre_hoja):
     """Lee una hoja del libro como DataFrame sin fórmulas."""
     wb = openpyxl.load_workbook(archivo, read_only=True, data_only=True)
@@ -105,7 +123,7 @@ def extraer_pagos_bancarios(archivo, archivo_corresponsal):
         df_out = pd.DataFrame()
         df_out["FECHA"]           = df["FECHA"]   if "FECHA"   in df.columns else None
         df_out["ENTIDAD"]         = df["ENTIDAD"] if "ENTIDAD" in df.columns else nombre_hoja
-        df_out["CEDULA"]          = df["CEDULA"]
+        df_out["CEDULA"]          = df["CEDULA"].apply(_limpiar_cedula)
         df_out["VALOR"]           = df["VALOR"]   if "VALOR"   in df.columns else None
         df_out["FRA"]             = df["NUM_FACTURA"] if "NUM_FACTURA" in df.columns else None
         df_out["RECIBOS"]         = None
@@ -225,7 +243,7 @@ def extraer_pagos_recaudos(archivo, fechas_filtro, entidades_filtro=None):
         df_out = pd.DataFrame()
         df_out["FECHA"]           = df["FECHA"]
         df_out["ENTIDAD"]         = df["ENTIDAD"] if "ENTIDAD" in df.columns else nombre_hoja
-        df_out["CEDULA"]          = df["CEDULA"]  if "CEDULA"  in df.columns else None
+        df_out["CEDULA"]          = df["CEDULA"].apply(_limpiar_cedula) if "CEDULA" in df.columns else None
         df_out["VALOR"]           = df["VALOR"]   if "VALOR"   in df.columns else None
         df_out["FRA"]             = df["NUM_FACTURA"] if "NUM_FACTURA" in df.columns else None
         df_out["RECIBOS"]         = None
