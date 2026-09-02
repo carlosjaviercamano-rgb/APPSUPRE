@@ -15,6 +15,8 @@ credentials:
       password: $2b$12$uQ7SJaw54ZrUvQGuiOtFbOllT/wlCs4oX0DvgdjC9vXtxa68TPR9y
       role: user
     lhincapie:
+      failed_login_attempts: 0
+      logged_in: true
       name: Leidy Hincapié
       password: $2b$12$kfW3sbDgZWAZr32ThUthPu5o2RT50/iAZ4TWP6zLBNQ.rKQ811aeK
       role: user
