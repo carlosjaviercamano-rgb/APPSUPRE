@@ -10,24 +10,22 @@ HOJAS_BANCARIOS = [
 ]
 
 HOJAS_RECAUDOS = [
-    "OCCIDENTE SUPRECREDITO 2026",
+    "RECAUDO EFECTY PSE",
     "RECORD"
 ]
 
 # Entidades que viven en cada hoja
 ENTIDADES_POR_HOJA = {
-    "OCCIDENTE SUPRECREDITO 2026": ["EFECTY", "PSE", "EFECTY-BANCO DE BOGOTA"],
+    "RECAUDO EFECTY PSE": ["EFECTY", "PSE", "EFECTY-BANCO DE BOGOTA"],
     "RECORD": ["RECORD"]
 }
 
 # ─── Mapeo de columnas del libro fuente ────────────────────────────────────
-# BANCOLOMBIA: A=FECHAINGRESO, B=ENTIDAD, C=NOMBRE, D=CEDULA,
+# BANCOLOMBIA y DAVIVIENDA: A=FECHAINGRESO, B=ENTIDAD, C=NOMBRE, D=CEDULA,
 #              E=DOCUMENTODEAPROBACION, F=TIPODETRANSACIÓN,
 #              G=REFERENCIA, H=VALOR, I=FRA, J=RECIBOS/RECIBO
-# DAVIVIENDA:  igual que Bancolombia pero con una columna adicional
-#              (TIPOMOVIMIENTO) insertada entre F y G, por lo que
-#              VALOR, FRA y RECIBO quedan una posición más adelante
-#              (I=VALOR, J=FRA, K=RECIBO). Ver `es_davivienda` más abajo.
+# (La columna TIPOMOVIMIENTO que se había agregado entre F y G en Davivienda
+# se quitó de nuevo, así que ambas hojas vuelven a compartir el mismo mapeo.)
 
 COL_FECHA    = 0   # A
 COL_ENTIDAD  = 1   # B
@@ -39,6 +37,24 @@ COL_REF      = 6   # G
 COL_VALOR    = 7   # H
 COL_FRA      = 8   # I
 COL_RECIBO   = 9   # J
+
+
+def _limpiar_cedula(valor):
+    """
+    Limpia la cédula para que no quede con el sufijo '.0' que pandas agrega
+    cuando una columna numérica se mezcla con celdas vacías (se infiere
+    float64 en vez de int). Sin esto, '123456' se convierte en '123456.0'
+    y no cruza contra el archivo de Clientes Activos.
+    """
+    if pd.isna(valor):
+        return valor
+    s = str(valor).strip()
+    if s.endswith(".0"):
+        try:
+            return str(int(float(s)))
+        except Exception:
+            return s
+    return s
 
 
 def leer_hoja(archivo, nombre_hoja):
@@ -84,24 +100,15 @@ def extraer_pagos_bancarios(archivo, archivo_corresponsal):
         if df is None or df.empty:
             continue
 
-        # Davivienda tiene una columna adicional (TIPOMOVIMIENTO) insertada
-        # entre F y G, por lo que VALOR, FRA y RECIBO quedan corridos una
-        # posición respecto al mapeo original (que sigue aplicando tal cual
-        # para Bancolombia).
-        es_davivienda = "DAVIVIENDA" in nombre_hoja.upper()
-        col_valor  = COL_VALOR + 1  if es_davivienda else COL_VALOR
-        col_fra    = COL_FRA + 1    if es_davivienda else COL_FRA
-        col_recibo = COL_RECIBO + 1 if es_davivienda else COL_RECIBO
-
-        # Renombrar columnas relevantes
+        # Renombrar columnas relevantes (mismo mapeo para Bancolombia y Davivienda)
         rename = {}
         if df.shape[1] > COL_FECHA:    rename[f"COL_{COL_FECHA}"]   = "FECHA"
         if df.shape[1] > COL_ENTIDAD:  rename[f"COL_{COL_ENTIDAD}"] = "ENTIDAD"
         if df.shape[1] > COL_CEDULA:   rename[f"COL_{COL_CEDULA}"]  = "CEDULA"
         if df.shape[1] > COL_TIPO:     rename[f"COL_{COL_TIPO}"]    = "T_TRANSACCION_SRC"
-        if df.shape[1] > col_valor:    rename[f"COL_{col_valor}"]   = "VALOR"
-        if df.shape[1] > col_fra:      rename[f"COL_{col_fra}"]     = "NUM_FACTURA"
-        if df.shape[1] > col_recibo:   rename[f"COL_{col_recibo}"]  = "RECIBO_SRC"
+        if df.shape[1] > COL_VALOR:    rename[f"COL_{COL_VALOR}"]   = "VALOR"
+        if df.shape[1] > COL_FRA:      rename[f"COL_{COL_FRA}"]     = "NUM_FACTURA"
+        if df.shape[1] > COL_RECIBO:   rename[f"COL_{COL_RECIBO}"]  = "RECIBO_SRC"
         df = df.rename(columns=rename)
 
         # ── Filtro rosado: cedula con valor Y recibo vacío ──────────────
@@ -116,7 +123,7 @@ def extraer_pagos_bancarios(archivo, archivo_corresponsal):
         df_out = pd.DataFrame()
         df_out["FECHA"]           = df["FECHA"]   if "FECHA"   in df.columns else None
         df_out["ENTIDAD"]         = df["ENTIDAD"] if "ENTIDAD" in df.columns else nombre_hoja
-        df_out["CEDULA"]          = df["CEDULA"]
+        df_out["CEDULA"]          = df["CEDULA"].apply(_limpiar_cedula)
         df_out["VALOR"]           = df["VALOR"]   if "VALOR"   in df.columns else None
         df_out["FRA"]             = df["NUM_FACTURA"] if "NUM_FACTURA" in df.columns else None
         df_out["RECIBOS"]         = None
@@ -236,7 +243,7 @@ def extraer_pagos_recaudos(archivo, fechas_filtro, entidades_filtro=None):
         df_out = pd.DataFrame()
         df_out["FECHA"]           = df["FECHA"]
         df_out["ENTIDAD"]         = df["ENTIDAD"] if "ENTIDAD" in df.columns else nombre_hoja
-        df_out["CEDULA"]          = df["CEDULA"]  if "CEDULA"  in df.columns else None
+        df_out["CEDULA"]          = df["CEDULA"].apply(_limpiar_cedula) if "CEDULA" in df.columns else None
         df_out["VALOR"]           = df["VALOR"]   if "VALOR"   in df.columns else None
         df_out["FRA"]             = df["NUM_FACTURA"] if "NUM_FACTURA" in df.columns else None
         df_out["RECIBOS"]         = None
@@ -282,25 +289,24 @@ def cargar_corresponsal(archivo):
 # EXTRACCIÓN CARGUE BANCO
 # ══════════════════════════════════════════════════════════════════════════
 
-# Valores a excluir en DAVIVIENDA columna H (CONCEPTO)
+# Valores a excluir en DAVIVIENDA columna G (REFERENCIA)
 EXCLUIR_DAVIVIENDA = [
     "Redeban BreB", "BANSUP ESTABLECIMIEN",
     "Compras y Pagos PSE", "Multiabonos", "BTA PROCESOS ESP."
 ]
 
-# Valores a excluir en DAVIVIENDA columna G (TIPOMOVIMIENTO)
-EXCLUIR_DAVIVIENDA_TIPOMOV = ["Nota Débito"]
-
 # Columnas del libro para cargue banco
 # BANCOLOMBIA: A=fecha, B=entidad, C=cedula, D=?, E=fra, F=?, G=?, H=valor
-# DAVIVIENDA:  A=fecha, B=entidad, C=cedula, D=?, E=fra, F=?, G=tipomovimiento, H=concepto, I=valor, J=fra
+# DAVIVIENDA:  A=fecha, B=entidad, C=cedula, D=?, E=fra, F=?, G=referencia, H=valor, I=fra
+# (La columna TIPOMOVIMIENTO que se había insertado entre F y G se quitó
+# de nuevo: REFERENCIA vuelve a la columna G, VALOR a H, FRA a I.)
 
 def extraer_cargue_banco(archivo, fechas_filtro):
     """
     Extrae movimientos bancarios para Cargue Banco.
     BANCOLOMBIA: filtro fecha col A + col H > 0
-    DAVIVIENDA:  filtro fecha col A + col G (TIPOMOVIMIENTO) != Nota Débito
-                 + col H (CONCEPTO) no en exclusiones + col C vacía
+    DAVIVIENDA:  filtro fecha col A + col G (REFERENCIA) no en exclusiones
+                 + col C vacía
     """
     if not fechas_filtro:
         raise ValueError("Debes seleccionar al menos una fecha.")
@@ -332,8 +338,8 @@ def extraer_cargue_banco(archivo, fechas_filtro):
             frames.append(df_out)
 
     # ── DAVIVIENDA ──────────────────────────────────────────────────────
-    # Columnas: A=0(FECHA) B=1(ENTIDAD) C=2(CEDULA) G=6(TIPOMOVIMIENTO)
-    #           H=7(CONCEPTO) I=8(VALOR) J=9(FRA)
+    # Columnas: A=0(FECHA) B=1(ENTIDAD) C=2(CEDULA) G=6(REFERENCIA)
+    #           H=7(VALOR) I=8(FRA)
     df_davi = leer_hoja(archivo, "DAVIVIENDA SUPRECREDITO")
     if df_davi is not None and not df_davi.empty:
         df_davi.columns = [f"COL_{i}" for i in range(df_davi.shape[1])]
@@ -342,19 +348,13 @@ def extraer_cargue_banco(archivo, fechas_filtro):
         df_davi["COL_0"] = pd.to_datetime(df_davi["COL_0"], errors="coerce")
         df_davi = df_davi[df_davi["COL_0"].dt.normalize().isin(fechas_dt)].copy()
 
-        # Filtro 2: columna G (TIPOMOVIMIENTO) != Nota Débito
+        # Filtro 2: columna G (REFERENCIA) no en exclusiones
         if df_davi.shape[1] > 6:
-            excluir_tipomov = [e.upper().strip() for e in EXCLUIR_DAVIVIENDA_TIPOMOV]
-            mask_tipomov = df_davi["COL_6"].astype(str).str.upper().str.strip().isin(excluir_tipomov)
-            df_davi = df_davi[~mask_tipomov].copy()
-
-        # Filtro 3: columna H (CONCEPTO) no en exclusiones
-        if df_davi.shape[1] > 7:
             excluir_upper = [e.upper().strip() for e in EXCLUIR_DAVIVIENDA]
-            mask_excluir = df_davi["COL_7"].astype(str).str.upper().str.strip().isin(excluir_upper)
+            mask_excluir = df_davi["COL_6"].astype(str).str.upper().str.strip().isin(excluir_upper)
             df_davi = df_davi[~mask_excluir].copy()
 
-        # Filtro 4: columna C vacía
+        # Filtro 3: columna C vacía
         if df_davi.shape[1] > 2:
             mask_vacia = df_davi["COL_2"].isna() | (df_davi["COL_2"].astype(str).str.strip().isin(["", "nan"]))
             df_davi = df_davi[mask_vacia].copy()
@@ -363,8 +363,8 @@ def extraer_cargue_banco(archivo, fechas_filtro):
             df_out2 = pd.DataFrame()
             df_out2["FECHA"]   = df_davi["COL_0"]
             df_out2["ENTIDAD"] = df_davi["COL_1"] if df_davi.shape[1] > 1 else "DAVIVIENDA"
-            df_out2["VALOR"]   = pd.to_numeric(df_davi["COL_8"], errors="coerce") if df_davi.shape[1] > 8 else 0
-            df_out2["FRA"]     = df_davi["COL_9"] if df_davi.shape[1] > 9 else None
+            df_out2["VALOR"]   = pd.to_numeric(df_davi["COL_7"], errors="coerce") if df_davi.shape[1] > 7 else 0
+            df_out2["FRA"]     = df_davi["COL_8"] if df_davi.shape[1] > 8 else None
             frames.append(df_out2)
 
     if not frames:
