@@ -234,9 +234,10 @@ def _procesar_corresponsal(libro, informe, mes, anio):
         (df_banco["COL_0"].dt.year  == anio)
     ].copy()
 
-    # Filtrar por CONSIGNACION CORRESPONSAL CB en col F
+    # Filtrar por CONSIGNACION CORRESPONSAL CB (o sin "CB") en col F
+    VALORES_CONSIGNACION_CORRESPONSAL = ["CONSIGNACION CORRESPONSAL CB", "CONSIGNACION CORRESPONSAL"]
     df_corr = df_mes[
-        df_mes["COL_5"].astype(str).str.strip().str.upper() == "CONSIGNACION CORRESPONSAL CB"
+        df_mes["COL_5"].astype(str).str.strip().str.upper().isin(VALORES_CONSIGNACION_CORRESPONSAL)
     ].copy()
 
     total_transacciones = len(df_corr)

@@ -150,7 +150,9 @@ def extraer_pagos_bancarios(archivo, archivo_corresponsal):
 
     # ── Proceso CORRESPONSAL ────────────────────────────────────────────
     # 1. Limpiar T_TRANSACCION: dejar solo "CONSIGNACION CORRESPONSAL CB"
-    mask_consig = df_final["T_TRANSACCION"].astype(str).str.upper().str.strip() == "CONSIGNACION CORRESPONSAL CB"
+    #    o "CONSIGNACION CORRESPONSAL" (empezó a llegar también sin el "CB")
+    VALORES_CONSIGNACION_CORRESPONSAL = ["CONSIGNACION CORRESPONSAL CB", "CONSIGNACION CORRESPONSAL"]
+    mask_consig = df_final["T_TRANSACCION"].astype(str).str.upper().str.strip().isin(VALORES_CONSIGNACION_CORRESPONSAL)
     df_final.loc[~mask_consig, "T_TRANSACCION"] = None
 
     # 2. Identificar PRIMERA VEZ: tiene CONSIGNACION pero cédula NO está en CORRESPONSAL

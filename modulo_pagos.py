@@ -170,12 +170,15 @@ def render():
     elif sub == "pendiente":
         render_pendiente_por_id()
 
+    elif sub == "kushki":
+        render_kushki()
+
 
 def _render_menu_submodulos_pagos():
     st.markdown("### Selecciona el tipo de aplicación")
     st.markdown("<br>", unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         st.markdown("""
@@ -207,6 +210,22 @@ def _render_menu_submodulos_pagos():
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("Entrar →", key="btn_pendiente", use_container_width=True, type="primary"):
             st.session_state.submodulo_pagos = "pendiente"
+            st.rerun()
+
+    with col3:
+        st.markdown("""
+        <div style="background:#1a1f2e;border:1px solid #2d3548;border-radius:12px;
+                    padding:1.5rem;text-align:center;">
+            <div style="font-size:2.5rem">💳</div>
+            <div style="font-weight:700;color:#fff;margin-top:0.5rem;font-size:1rem">
+                KUSHKI</div>
+            <div style="color:#64748b;font-size:0.8rem;margin-top:0.3rem">
+                Solo compensación, un archivo por fecha</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Entrar →", key="btn_kushki", use_container_width=True, type="primary"):
+            st.session_state.submodulo_pagos = "kushki"
             st.rerun()
 
 
@@ -1614,5 +1633,54 @@ def render_pendiente_por_id():
                     st.success(f"✅ Compensación: {resultado_comp}")
                 except Exception as e:
                     st.error(f"❌ Error generando compensación: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# KUSHKI (solo compensación)
+# ══════════════════════════════════════════════════════════════════════════
+def render_kushki():
+    st.markdown("### 💳 KUSHKI")
+    st.caption(
+        "Sube el reporte de Kushki. Se genera un archivo de compensación "
+        "independiente por cada fecha encontrada en la columna 'created' — "
+        "aquí no hay aplicación de pagos, solo compensación (igual que PSE/"
+        "Efecty/Récord)."
+    )
+
+    archivo = st.file_uploader(
+        "Reporte Kushki (.xlsx)", type=["xlsx"],
+        key="up_kushki_reporte", label_visibility="collapsed"
+    )
+    if archivo:
+        st.session_state["kushki_archivo"] = archivo
+        st.success(f"✅ {archivo.name}")
+    elif st.session_state.get("kushki_archivo"):
+        st.success("✅ Ya cargado")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    col_btn, col_lim = st.columns([3, 1])
+    with col_btn:
+        generar = st.button("📤  Generar Compensación KUSHKI", type="primary",
+                             use_container_width=True, key="btn_generar_kushki")
+    with col_lim:
+        if st.button("🔄  Limpiar", use_container_width=True, key="btn_limpiar_kushki"):
+            st.session_state.pop("kushki_archivo", None)
+            st.rerun()
+
+    if generar:
+        if not st.session_state.get("kushki_archivo"):
+            st.error("❌ Debes cargar el archivo primero.")
+        else:
+            from generar_compensacion_kushki import crear_compensacion_kushki
+            with st.spinner("Generando compensación..."):
+                try:
+                    resultado = crear_compensacion_kushki(
+                        st.session_state["kushki_archivo"], st.session_state.config
+                    )
+                    st.success(f"✅ {resultado}")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
                     import traceback
                     st.code(traceback.format_exc())
