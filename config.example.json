@@ -1,0 +1,17 @@
+{
+  "libro_nombre": "LIBRO BANCOS 2025",
+  "sharepoint_url": "",
+  "ruta_movicap": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\1.MOVICAP\\\\",
+  "ruta_suprecartera": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\2.SUPRECARTERA\\\\",
+  "ruta_suprecredito": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\3.SUPRECREDITO\\\\",
+  "ruta_tucredito": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\4.TUCREDITO\\\\",
+  "ruta_compensaciones": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\COMPENSACION 2026\\\\",
+  "ruta_conc_bancolombia": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\MOVIMIENTOS BANCARIOS\\BANCOLOMBIA\\\\",
+  "ruta_conc_davivienda": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\MOVIMIENTOS BANCARIOS\\DAVIVIENDA\\\\",
+  "ruta_conc_occidente": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\MOVIMIENTOS BANCARIOS\\OCCIDENTE\\\\",
+  "ruta_conc_bogota": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\MOVIMIENTOS BANCARIOS\\BOGOTA\\\\",
+  "ruta_conc_puentes": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\MOVIMIENTOS BANCARIOS\\CUENTA CANJE BANCO\\\\",
+  "ruta_cargue_banco": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\CARGUE BANCOS\\\\",
+  "ruta_tabla_pagos": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\MOVIMIENTOS DEL MES\\\\",
+  "ruta_gastos_bancarios": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\GASTOS BANCARIOS\\\\"
+}
