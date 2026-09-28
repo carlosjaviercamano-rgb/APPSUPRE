@@ -9,7 +9,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 
-def render():
+def render(config=None):
     st.markdown("""
     <div class="module-header">
         <div class="module-icon">🔄</div>
@@ -29,10 +29,10 @@ def render():
         _render_menu()
     elif sub == "efecty_record":
         _render_volver()
-        render_efecty_record()
+        render_efecty_record(config)
     elif sub == "bancolombia":
         _render_volver()
-        render_bancolombia()
+        render_bancolombia(config)
 
 
 def _render_menu():
@@ -85,7 +85,7 @@ def _render_volver():
 # CONVERTIDOR EFECTY / RECORD — ARCHIVO .LST
 # ══════════════════════════════════════════════════════════════════════════
 
-def render_efecty_record():
+def render_efecty_record(config=None):
     st.markdown("""
     <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);border-radius:10px;
                 padding:1rem 1.5rem;margin-bottom:1rem;">
@@ -199,8 +199,8 @@ def render_efecty_record():
 
     excel_bytes = _generar_excel_lst(datos, nombre_base)
 
-    # Guardar automáticamente en carpeta fija
-    ruta_auto = r"C:\Users\Usuario\Desktop\BANCOS\CONVERTIDOR DE ARCHIVO"
+    # Guardar automáticamente en la carpeta configurada por cada usuario
+    ruta_auto = config.get("ruta_convertidor", "") if config else ""
     if ruta_auto:
         try:
             import os
@@ -494,7 +494,7 @@ def _nombre_hoja_seguro(nombre):
 # CONVERTIDOR BANCOLOMBIA — EXTRACTO PDF
 # ══════════════════════════════════════════════════════════════════════════
 
-def render_bancolombia():
+def render_bancolombia(config=None):
     st.markdown("""
     <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);border-radius:10px;
                 padding:1rem 1.5rem;margin-bottom:1rem;">
@@ -542,17 +542,18 @@ def render_bancolombia():
     nombre_xlsx = _nombre_bancolombia(archivo.name, datos["fecha"])
     excel_bytes = _generar_excel_bancolombia(datos)
 
-    # Guardar automáticamente
-    ruta_auto = r"C:\Users\ASUS\Desktop\BANCOS\CONVERTIDOR DE ARCHIVO"
-    try:
-        import os
-        os.makedirs(ruta_auto, exist_ok=True)
-        ruta_completa = os.path.join(ruta_auto, nombre_xlsx)
-        with open(ruta_completa, "wb") as f:
-            f.write(excel_bytes)
-        st.success(f"💾 Guardado automáticamente en: {ruta_completa}")
-    except Exception as e:
-        st.warning(f"⚠️ No se pudo guardar automáticamente: {str(e)}")
+    # Guardar automáticamente en la carpeta configurada por cada usuario
+    ruta_auto = config.get("ruta_convertidor", "") if config else ""
+    if ruta_auto:
+        try:
+            import os
+            os.makedirs(ruta_auto, exist_ok=True)
+            ruta_completa = os.path.join(ruta_auto, nombre_xlsx)
+            with open(ruta_completa, "wb") as f:
+                f.write(excel_bytes)
+            st.success(f"💾 Guardado automáticamente en: {ruta_completa}")
+        except Exception as e:
+            st.warning(f"⚠️ No se pudo guardar automáticamente: {str(e)}")
 
     st.download_button(
         label=f"⬇️  Descargar Excel — {nombre_xlsx}",
