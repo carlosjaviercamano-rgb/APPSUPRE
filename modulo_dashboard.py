@@ -8,6 +8,25 @@ from datetime import datetime
 MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
          "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
 
+
+def _limpiar_cedula(valor):
+    """
+    Limpia la cédula para que no quede con el sufijo '.0' que pandas agrega
+    cuando una columna numérica se mezcla con celdas vacías (se infiere
+    float64 en vez de int). Sin esto, '123456' se convierte en '123456.0'
+    en un lado del cruce (libro de banco o histórico) y no coincide con el
+    mismo valor sin el sufijo en el otro lado, perdiendo reincidentes reales.
+    """
+    if pd.isna(valor):
+        return valor
+    s = str(valor).strip()
+    if s.endswith(".0"):
+        try:
+            return str(int(float(s)))
+        except Exception:
+            return s
+    return s
+
 def render():
     st.markdown("""
     <div class="module-header">
@@ -254,13 +273,13 @@ def _procesar_corresponsal(libro, informe, mes, anio):
     identificadas   = len(con_iden)
 
     # Consolidar cédulas del mes (cuántos movimientos tuvo cada una)
-    cedulas_mes = con_iden["COL_3"].astype(str).str.strip().value_counts().to_dict()
+    cedulas_mes = con_iden["COL_3"].apply(_limpiar_cedula).value_counts().to_dict()
 
     # ── Leer histórico ───────────────────────────────────────────────────
     df_hist = pd.read_excel(informe, sheet_name="TRANSFERENCIAS CORRESPONSAL", header=0)
     df_hist.columns = ["CEDULA","HIST_ANT","TRANS_MES","HIST_ACT","OBS",
                        "VACIO"] + [f"X{i}" for i in range(df_hist.shape[1]-6)]
-    df_hist["CEDULA"] = df_hist["CEDULA"].astype(str).str.strip()
+    df_hist["CEDULA"] = df_hist["CEDULA"].apply(_limpiar_cedula)
 
     cedulas_historico = set(df_hist["CEDULA"].tolist())
 
