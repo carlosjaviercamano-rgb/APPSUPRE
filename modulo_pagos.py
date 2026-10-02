@@ -1859,12 +1859,18 @@ def render_pendiente_por_id():
 def render_kushki():
     st.markdown("### 💳 KUSHKI")
     st.caption(
-        "Sube el reporte de Kushki. Se genera un archivo de compensación "
-        "independiente por cada fecha encontrada en la columna 'created' — "
-        "aquí no hay aplicación de pagos, solo compensación (igual que PSE/"
-        "Efecty/Récord)."
+        "Sube el reporte de Kushki y el archivo de conciliación de canje "
+        "banco (el que genera la app en Conciliaciones ➜ Cuentas Puentes / "
+        "Transitorias, cuenta CANJE BANCOS). Antes de generar la "
+        "compensación se valida que cada pago ya esté conciliado en el "
+        "sistema y se corrige la cédula cuando Kushki trae la del medio de "
+        "pago en vez de la del titular del crédito. Se genera un archivo "
+        "de compensación independiente por cada fecha encontrada en la "
+        "columna 'created' — aquí no hay aplicación de pagos, solo "
+        "compensación (igual que PSE/Efecty/Récord)."
     )
 
+    st.markdown("**1. Reporte Kushki (.xlsx):**")
     archivo = st.file_uploader(
         "Reporte Kushki (.xlsx)", type=["xlsx"],
         key="up_kushki_reporte", label_visibility="collapsed"
@@ -1875,6 +1881,17 @@ def render_kushki():
     elif st.session_state.get("kushki_archivo"):
         st.success("✅ Ya cargado")
 
+    st.markdown("**2. Archivo de conciliación de canje banco (.xlsx):**")
+    archivo_concil = st.file_uploader(
+        "Archivo de conciliación de canje banco (.xlsx)", type=["xlsx"],
+        key="up_kushki_conciliacion", label_visibility="collapsed"
+    )
+    if archivo_concil:
+        st.session_state["kushki_conciliacion"] = archivo_concil
+        st.success(f"✅ {archivo_concil.name}")
+    elif st.session_state.get("kushki_conciliacion"):
+        st.success("✅ Ya cargado")
+
     st.markdown("<br>", unsafe_allow_html=True)
     col_btn, col_lim = st.columns([3, 1])
     with col_btn:
@@ -1883,17 +1900,22 @@ def render_kushki():
     with col_lim:
         if st.button("🔄  Limpiar", use_container_width=True, key="btn_limpiar_kushki"):
             st.session_state.pop("kushki_archivo", None)
+            st.session_state.pop("kushki_conciliacion", None)
             st.rerun()
 
     if generar:
         if not st.session_state.get("kushki_archivo"):
-            st.error("❌ Debes cargar el archivo primero.")
+            st.error("❌ Debes cargar el reporte de Kushki primero.")
+        elif not st.session_state.get("kushki_conciliacion"):
+            st.error("❌ Debes cargar el archivo de conciliación de canje banco primero.")
         else:
             from generar_compensacion_kushki import crear_compensacion_kushki
-            with st.spinner("Generando compensación..."):
+            with st.spinner("Validando conciliación y generando compensación..."):
                 try:
                     resultado = crear_compensacion_kushki(
-                        st.session_state["kushki_archivo"], st.session_state.config
+                        st.session_state["kushki_archivo"],
+                        st.session_state["kushki_conciliacion"],
+                        st.session_state.config,
                     )
                     st.success(f"✅ {resultado}")
                 except Exception as e:
