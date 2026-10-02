@@ -97,6 +97,116 @@ STYLES = """
 </style>
 """
 
+def _limpiar_cedula(valor):
+    """
+    Limpia la cédula para que no quede con el sufijo '.0' que pandas agrega
+    cuando una columna numérica se mezcla con celdas vacías (se infiere
+    float64 en vez de int). Sin esto, '123456' se convierte en '123456.0'
+    y no cruza correctamente contra otra tabla.
+    """
+    if pd.isna(valor):
+        return ""
+    s = str(valor).strip()
+    if s.endswith(".0"):
+        try:
+            return str(int(float(s)))
+        except Exception:
+            return s
+    return s
+
+
+def _validar_cedulas_cartera(df_cartera, df_area_banco, num_parser):
+    """
+    Cruza las filas pegadas de Cartera (FECHA, CEDULA, VALOR — la fuente
+    correcta) contra la tabla de extracción (df_area_banco), agrupando por
+    FECHA + CEDULA.
+
+    Dentro de cada grupo (misma fecha y misma cédula) el emparejamiento es
+    1 a 1 por VALOR, no cruce de todas las combinaciones: si un cliente
+    pagó varias veces el mismo día, cada valor de Cartera se empareja como
+    mucho con una fila de la extracción. Una fila de la extracción que se
+    queda sin un valor de Cartera que la respalde es la que realmente tiene
+    la cédula mal copiada, y se reporta como inconsistente. Si a Cartera le
+    sobra algún valor sin fila de extracción que lo respalde, se reporta
+    aparte como "no encontrada".
+    """
+    resultado = {"sin_filas_cartera": False, "inconsistencias": [], "no_encontradas": []}
+
+    filas_cartera = df_cartera.copy()
+    filas_cartera = filas_cartera[
+        filas_cartera["CEDULA"].astype(str).str.strip().ne("") &
+        filas_cartera["FECHA"].astype(str).str.strip().ne("")
+    ]
+    if filas_cartera.empty:
+        resultado["sin_filas_cartera"] = True
+        return resultado
+
+    filas_cartera = filas_cartera.copy()
+    filas_cartera["_FECHA_NORM"] = pd.to_datetime(
+        filas_cartera["FECHA"].astype(str).str.strip(), errors="coerce", dayfirst=True
+    ).dt.normalize()
+    filas_cartera["_CEDULA_NORM"] = filas_cartera["CEDULA"].apply(_limpiar_cedula)
+    filas_cartera["_VALOR_NORM"]  = filas_cartera["VALOR"].apply(num_parser)
+
+    df_ext = df_area_banco.copy()
+    df_ext["_FECHA_NORM"]  = pd.to_datetime(df_ext["FECHA"], errors="coerce", dayfirst=True).dt.normalize()
+    df_ext["_CEDULA_NORM"] = df_ext["CEDULA"].apply(_limpiar_cedula)
+    df_ext["_VALOR_NORM"]  = pd.to_numeric(df_ext["VALOR"], errors="coerce").fillna(0.0)
+    df_ext["_FILA_TABLA"]  = df_ext.index
+
+    con_fecha = filas_cartera[filas_cartera["_FECHA_NORM"].notna()]
+    sin_fecha = filas_cartera[filas_cartera["_FECHA_NORM"].isna()]
+
+    for (fecha, cedula), grupo in con_fecha.groupby(["_FECHA_NORM", "_CEDULA_NORM"]):
+        valores_cartera = list(grupo["_VALOR_NORM"])
+        candidatas = df_ext[(df_ext["_FECHA_NORM"] == fecha) & (df_ext["_CEDULA_NORM"] == cedula)]
+        fecha_str = fecha.strftime("%d/%m/%Y")
+
+        if candidatas.empty:
+            for v in valores_cartera:
+                resultado["no_encontradas"].append({
+                    "FECHA Cartera":  fecha_str,
+                    "CEDULA Cartera": cedula,
+                    "VALOR Cartera":  v,
+                })
+            continue
+
+        ref_valores     = ", ".join(f"{v:,.0f}".replace(",", ".") for v in valores_cartera)
+        valores_restantes = list(valores_cartera)
+
+        for _, cand in candidatas.iterrows():
+            valor_cand  = cand["_VALOR_NORM"]
+            match_idx   = next(
+                (i for i, v in enumerate(valores_restantes) if abs(v - valor_cand) <= 1), None
+            )
+            if match_idx is not None:
+                valores_restantes.pop(match_idx)
+            else:
+                resultado["inconsistencias"].append({
+                    "Fila en Tabla de Pagos":                     int(cand["_FILA_TABLA"]),
+                    "FECHA":                                      cand["FECHA"],
+                    "CEDULA":                                     cand["CEDULA"],
+                    "VALOR en tabla":                             valor_cand,
+                    "VALOR(es) de Cartera para esa cédula/fecha": ref_valores,
+                })
+
+        for v in valores_restantes:
+            resultado["no_encontradas"].append({
+                "FECHA Cartera":  fecha_str,
+                "CEDULA Cartera": cedula,
+                "VALOR Cartera":  v,
+            })
+
+    for _, fila in sin_fecha.iterrows():
+        resultado["no_encontradas"].append({
+            "FECHA Cartera":  fila["FECHA"],
+            "CEDULA Cartera": fila["CEDULA"],
+            "VALOR Cartera":  fila["_VALOR_NORM"],
+        })
+
+    return resultado
+
+
 # ─── Columnas de AREA DE BANCO ─────────────────────────────────────────────
 COLUMNAS_AREA_BANCO = [
     "ENTIDAD", "FECHA", "CEDULA", "VALOR", "T_TRANSACCION",
@@ -352,6 +462,86 @@ def render_carga_archivos():
             if nuevo_corresponsal:
                 st.session_state.archivo_corresponsal = nuevo_corresponsal
                 st.success(f"✅ {nuevo_corresponsal.name}")
+
+    # ══════════════════════════════════════════════════════════════════════
+    # VALIDACIÓN DE CÉDULAS MANUALES (CARTERA)
+    # ══════════════════════════════════════════════════════════════════════
+    st.markdown("---")
+    st.markdown("### ✅ Validación de Cédulas Manuales (Cartera)")
+    st.caption(
+        "Pega aquí las filas FECHA, CÉDULA, VALOR tal como las reportó Cartera "
+        "(esta es la fuente correcta). Al cruzar, se buscan esas mismas "
+        "fecha+cédula en la tabla de extracción de la pestaña **2. Tabla de "
+        "Pagos** y se marca el número de fila de esa tabla donde el valor no "
+        "coincide — ahí quedó pegada una cédula equivocada."
+    )
+
+    if "cartera_editor_version" not in st.session_state:
+        st.session_state["cartera_editor_version"] = 0
+    editor_key_cartera = f"editor_cartera_validacion_{st.session_state['cartera_editor_version']}"
+
+    columnas_cartera  = ["FECHA", "CEDULA", "VALOR"]
+    plantilla_cartera = pd.DataFrame({c: pd.Series(dtype="str") for c in columnas_cartera})
+
+    st.markdown("**⬆️ Pega aquí las filas reportadas por Cartera:**")
+    df_cartera = st.data_editor(
+        plantilla_cartera,
+        num_rows="dynamic",
+        use_container_width=True,
+        key=editor_key_cartera,
+        column_config={
+            "FECHA":  st.column_config.TextColumn("Fecha (tal cual la pegues)"),
+            "CEDULA": st.column_config.TextColumn("Cédula"),
+            "VALOR":  st.column_config.TextColumn("Valor (tal cual lo pegues)"),
+        }
+    )
+
+    col_cruce, col_lim_cartera = st.columns([3, 1])
+    with col_lim_cartera:
+        if st.button("🔄  Limpiar tabla", use_container_width=True, key="limpiar_cartera"):
+            st.session_state["cartera_editor_version"] += 1
+            st.session_state.pop("cartera_alertas", None)
+            st.rerun()
+    with col_cruce:
+        hacer_cruce = st.button(
+            "🔍  Cruzar / Validar cédulas",
+            type="primary", use_container_width=True, key="btn_cruce_cartera"
+        )
+
+    if hacer_cruce:
+        if st.session_state.df_area_banco is None:
+            st.warning("⚠️ Primero extrae los pagos en la pestaña **2. Tabla de Pagos**.")
+        else:
+            from generar_gastos_bancarios import _num
+            st.session_state["cartera_alertas"] = _validar_cedulas_cartera(
+                df_cartera, st.session_state.df_area_banco, _num
+            )
+
+    alertas = st.session_state.get("cartera_alertas")
+    if alertas is not None:
+        if alertas["sin_filas_cartera"]:
+            st.info("No se pegó ninguna fila de Cartera para validar.")
+        else:
+            if not alertas["inconsistencias"] and not alertas["no_encontradas"]:
+                st.success("✅ Todo cuadra: no se encontraron inconsistencias.")
+            if alertas["inconsistencias"]:
+                st.error(
+                    f"❌ {len(alertas['inconsistencias'])} fila(s) de la tabla de "
+                    "extracción con un valor distinto al reportado por Cartera:"
+                )
+                st.dataframe(
+                    pd.DataFrame(alertas["inconsistencias"]),
+                    use_container_width=True, hide_index=True
+                )
+            if alertas["no_encontradas"]:
+                st.warning(
+                    f"⚠️ {len(alertas['no_encontradas'])} fila(s) de Cartera sin "
+                    "ninguna coincidencia (fecha+cédula) en la tabla de extracción:"
+                )
+                st.dataframe(
+                    pd.DataFrame(alertas["no_encontradas"]),
+                    use_container_width=True, hide_index=True
+                )
 
 
 # ══════════════════════════════════════════════════════════════════════════
