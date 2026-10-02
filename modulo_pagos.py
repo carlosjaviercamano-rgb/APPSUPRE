@@ -115,6 +115,34 @@ def _limpiar_cedula(valor):
     return s
 
 
+def _parse_fecha_serie(serie):
+    """
+    Convierte una columna de fechas a datetime normalizado, sin el bug de
+    pandas donde dayfirst=True puede invertir día/mes incluso en fechas que
+    ya vienen bien formadas (por ejemplo cuando una columna de Excel ya es
+    datetime y se castea a texto antes de parsear: "2026-10-01" terminaba
+    interpretándose como 10 de enero en vez de 1 de octubre).
+
+    Si la columna ya es datetime (típico cuando viene de un Excel leído con
+    pandas), se usa tal cual. Solo si son textos pegados manualmente (donde
+    sí puede haber ambigüedad día/mes, ej. "01/10/2026") se parsea con
+    dayfirst=True.
+    """
+    if pd.api.types.is_datetime64_any_dtype(serie):
+        return pd.to_datetime(serie, errors="coerce").dt.normalize()
+
+    muestra = serie.dropna()
+    ya_son_fechas = len(muestra) > 0 and muestra.apply(
+        lambda v: isinstance(v, pd.Timestamp) or (hasattr(v, "year") and hasattr(v, "month"))
+    ).all()
+    if ya_son_fechas:
+        return pd.to_datetime(serie, errors="coerce").dt.normalize()
+
+    return pd.to_datetime(
+        serie.astype(str).str.strip(), errors="coerce", dayfirst=True
+    ).dt.normalize()
+
+
 def _validar_cedulas_cartera(df_cartera, df_area_banco, num_parser):
     """
     Cruza las filas pegadas de Cartera (FECHA, CEDULA, VALOR — la fuente
@@ -142,14 +170,12 @@ def _validar_cedulas_cartera(df_cartera, df_area_banco, num_parser):
         return resultado
 
     filas_cartera = filas_cartera.copy()
-    filas_cartera["_FECHA_NORM"] = pd.to_datetime(
-        filas_cartera["FECHA"].astype(str).str.strip(), errors="coerce", dayfirst=True
-    ).dt.normalize()
+    filas_cartera["_FECHA_NORM"] = _parse_fecha_serie(filas_cartera["FECHA"])
     filas_cartera["_CEDULA_NORM"] = filas_cartera["CEDULA"].apply(_limpiar_cedula)
     filas_cartera["_VALOR_NORM"]  = filas_cartera["VALOR"].apply(num_parser)
 
     df_ext = df_area_banco.copy()
-    df_ext["_FECHA_NORM"]  = pd.to_datetime(df_ext["FECHA"], errors="coerce", dayfirst=True).dt.normalize()
+    df_ext["_FECHA_NORM"]  = _parse_fecha_serie(df_ext["FECHA"])
     df_ext["_CEDULA_NORM"] = df_ext["CEDULA"].apply(_limpiar_cedula)
     df_ext["_VALOR_NORM"]  = pd.to_numeric(df_ext["VALOR"], errors="coerce").fillna(0.0)
     df_ext["_FILA_TABLA"]  = df_ext.index
