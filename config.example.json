@@ -13,5 +13,8 @@
   "ruta_conc_puentes": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\MOVIMIENTOS BANCARIOS\\CUENTA CANJE BANCO\\\\",
   "ruta_cargue_banco": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\CARGUE BANCOS\\\\",
   "ruta_tabla_pagos": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\MOVIMIENTOS DEL MES\\\\",
-  "ruta_gastos_bancarios": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\GASTOS BANCARIOS\\\\"
+  "ruta_gastos_bancarios": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\GASTOS BANCARIOS\\\\",
+  "ruta_convertidor": "C:\\ruta\\a\\tu\\carpeta\\BANCOS\\CONVERTIDOR DE ARCHIVO\\\\",
+  "ruta_obligaciones_historico": "C:\\ruta\\a\\tu\\OneDrive\\historico_obligaciones_financiera.xlsx",
+  "ruta_control_pagos_obligaciones": "C:\\ruta\\a\\tu\\OneDrive\\control_pagos_obligaciones_financieras.xlsx"
 }
