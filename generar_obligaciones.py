@@ -28,11 +28,12 @@ import re
 import shutil
 import unicodedata
 from copy import copy
+import calendar
 from datetime import datetime
 
 import openpyxl
 import pandas as pd
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
 # ── Constantes ────────────────────────────────────────────────────────────
@@ -67,6 +68,7 @@ COLUMNAS_FECHA = {"fecha_pago"}
 COLUMNAS_CLAVE = ["empresa", "factura", "identificacion_proveedor"]
 COLUMNAS_REQUERIDAS_REPORTE = COLUMNAS_CLAVE + ["nombre_proveedor", "valor_cuota"]
 
+FORMATO_FECHA = "dd/mm/yyyy"
 FORMATO_MONEDA = '_-"$"\\ * #,##0.00_-;\\-"$"\\ * #,##0.00_-;_-"$"\\ * "-"??_-;_-@_-'
 
 # Definición de las hojas del libro de control.
@@ -87,7 +89,9 @@ SPEC_BANCOS = {
     "hoja": HOJA_BANCOS,
     "clave": ["empresa", "factura", "identificacion_proveedor"],
     "encabezados": ["empresa", "factura", "tipo_documento", "identificacion_proveedor",
-                    "nombre_proveedor", "Antigüedad_Crédito"],
+                    "nombre_proveedor", "Antigüedad_Crédito", "fecha_vencimiento"],
+    # columna fija (no se repite por mes): mes y año del periodo que se reporta + día del reporte
+    "columna_fecha": "fecha_vencimiento",
     "metricas": ["valor_cuota", "capital", "interes", METRICA_ESTADO],
     # en bancos se agrupan y ocultan las columnas de los meses anteriores (se expanden con "+")
     "ocultar_meses_anteriores": True,
@@ -269,7 +273,10 @@ def leer_reporte(archivo):
                 break
             except Exception:
                 continue
-        df = pd.read_csv(io.StringIO(texto), dtype=str, keep_default_na=False)
+        # Excel (configuración regional de Colombia) guarda los csv separados por «;»
+        primera = texto.lstrip("\ufeff").split("\n", 1)[0]
+        sep = ";" if primera.count(";") > primera.count(",") else ","
+        df = pd.read_csv(io.StringIO(texto), dtype=str, keep_default_na=False, sep=sep)
 
     df.columns = [_texto(c).lower() for c in df.columns]
     faltantes = [c for c in COLUMNAS_REQUERIDAS_REPORTE if c not in df.columns]
@@ -502,6 +509,8 @@ def construir_objetivos(filas_hist, claves_nuevas=None):
                 "id_proveedor": id_prov, "identificacion_proveedor": id_prov,
                 "nombre_proveedor": nombre,
                 "antiguedad": ETIQUETA_NUEVO if es_nueva else ETIQUETA_EXISTENTE,
+                "dia_vencimiento": (_a_fecha(v.get("fecha_pago")).day
+                                    if _a_fecha(v.get("fecha_pago")) else None),
                 "valores": {
                     "valor_cuota": round(valor, 2),
                     "capital": round(_a_float(v.get("capital")) or 0.0, 2),
@@ -613,6 +622,53 @@ def _archivar_fila(wb, hoja_origen, ws_origen, fila, headers, fecha_op):
         _copiar_estilo(ws_origen.cell(fila, col), celda)
 
 
+def _fecha_vencimiento(dia, mes, anio):
+    """Fecha del periodo que se reporta con el día que trae el reporte (si el mes tiene
+    menos días, queda el último: día 31 en un mes de 30 -> 30)."""
+    if not dia:
+        return None
+    return datetime(int(anio), int(mes), min(int(dia), calendar.monthrange(int(anio), int(mes))[1]))
+
+
+def _desplazar_sqref(sqref, desde):
+    """Corre una columna a la derecha las referencias de un rango de validación."""
+    def cambia(m):
+        col = column_index_from_string(m.group(1))
+        return get_column_letter(col + 1 if col >= desde else col) + m.group(2)
+    return " ".join(re.sub(r"([A-Z]+)(\d+)", cambia, p) for p in str(sqref).split())
+
+
+def _insertar_columna_fija(ws, nombre, despues_de, spec):
+    """Inserta una columna fija en una hoja que ya existe, sin descuadrar anchos, ocultas
+    ni listas desplegables de las columnas que quedan a la derecha."""
+    h = _headers(ws)
+    prefijos = tuple(f"{m}_" for m in spec["metricas"])
+    if despues_de in h:
+        pos = h[despues_de] + 1
+    else:
+        meses = [c for k, c in h.items() if k.startswith(prefijos)]
+        pos = min(meses) if meses else _ultima_col(ws) + 1
+    _expandir_columnas_agrupadas(ws)
+    info = {column_index_from_string(k): (d.width, d.hidden, d.outlineLevel)
+            for k, d in ws.column_dimensions.items()}
+    for k in list(ws.column_dimensions.keys()):
+        del ws.column_dimensions[k]
+    ws.insert_cols(pos)
+    for idx, (ancho, oculto, nivel) in info.items():
+        nuevo = idx + 1 if idx >= pos else idx
+        d = ws.column_dimensions[get_column_letter(nuevo)]
+        d.width, d.hidden, d.outlineLevel = ancho, oculto, nivel
+    ws.column_dimensions[get_column_letter(pos)].width = 18
+    for dv in ws.data_validations.dataValidation:
+        dv.sqref = type(dv.sqref)(_desplazar_sqref(dv.sqref, pos))
+    ws.cell(1, pos).value = nombre
+    ref = pos - 1 if pos > 1 else pos + 1
+    _copiar_estilo(ws.cell(1, ref), ws.cell(1, pos))
+    for r in range(2, ws.max_row + 1):
+        _copiar_estilo(ws.cell(r, ref), ws.cell(r, pos))
+    return pos
+
+
 def _valor_columna_nueva(nombre_norm, obj, spec, nombres):
     """Valor de cada columna al crear una fila nueva en la hoja de control."""
     if nombre_norm in ("id_proveedor", "identificacion_proveedor"):
@@ -621,6 +677,8 @@ def _valor_columna_nueva(nombre_norm, obj, spec, nombres):
         return obj.get(nombre_norm) or None
     if nombre_norm == "antiguedad_credito":
         return obj.get("antiguedad")
+    if nombre_norm == spec.get("columna_fecha"):
+        return obj.get("fecha_vencimiento")
     for m in spec["metricas"]:
         if nombre_norm == nombres[m]:
             return ESTADO_CUOTA_PENDIENTE if m == METRICA_ESTADO else obj["valores"].get(m, 0.0)
@@ -691,11 +749,20 @@ def _actualizar_hoja_control(wb, spec, objetivos, mes, anio, fecha_op):
     if faltan:
         raise ValueError(f"En la hoja '{spec['hoja']}' faltan las columnas: {', '.join(faltan)}")
 
+    col_fecha_nombre = spec.get("columna_fecha")
+    if col_fecha_nombre:
+        if _norm_header(col_fecha_nombre) not in h:
+            _insertar_columna_fija(ws, col_fecha_nombre, "antiguedad_credito", spec)
+            h = _headers(ws)
+        for o in objetivos:
+            o["fecha_vencimiento"] = _fecha_vencimiento(o.get("dia_vencimiento"), MESES_ES.index(mes) + 1, anio)
+
     cols_mes = _asegurar_columnas_mes(ws, spec, mes, anio)
     h = _headers(ws)
     nombres = _nombres_mes(spec, mes, anio)
     c_val, c_est = cols_mes["valor_cuota"], cols_mes[METRICA_ESTADO]
     c_ant = h.get("antiguedad_credito")
+    c_fecha = h.get(_norm_header(col_fecha_nombre)) if col_fecha_nombre else None
     metricas_num = [m for m in spec["metricas"] if m != METRICA_ESTADO]
     cols_clave = [h[_norm_header(c)] for c in campos_clave]
 
@@ -738,6 +805,9 @@ def _actualizar_hoja_control(wb, spec, objetivos, mes, anio, fecha_op):
                 f"PAGADO con {anterior:,.2f} y el valor nuevo es {o['valores']['valor_cuota']:,.2f}.")
         if c_ant and primera_corrida:
             ws.cell(r, c_ant).value = o["antiguedad"]
+        if c_fecha and o.get("fecha_vencimiento"):
+            ws.cell(r, c_fecha).value = o["fecha_vencimiento"]
+            ws.cell(r, c_fecha).number_format = FORMATO_FECHA
         resumen["actualizadas"].append(o)
 
     # 2) filas que ya no están activas: se archivan en CANCELADAS y se eliminan
@@ -766,6 +836,8 @@ def _actualizar_hoja_control(wb, spec, objetivos, mes, anio, fecha_op):
             if nombre_norm.startswith(tuple(f"{m}_" for m in metricas_num)) \
                     and ws.cell(ultima, col).number_format == "General":
                 ws.cell(ultima, col).number_format = FORMATO_MONEDA
+        if c_fecha and ws.cell(ultima, c_fecha).value:
+            ws.cell(ultima, c_fecha).number_format = FORMATO_FECHA
         resumen["nuevas"].append(o)
 
     # 4) lista desplegable PENDIENTE / PAGADO y autofiltro
