@@ -14,7 +14,9 @@ Flujo mensual:
      con tesorería:
         - PAGOS_POR_CAJA   : tipo Particular, UNA fila por identificación de
                              proveedor con la SUMA de sus cuotas del mes.
-        - PAGOS_POR_BANCOS : tipo Bancario, una fila por obligación.
+        - PAGOS_POR_BANCOS : tipo Bancario, una fila por obligación, con la columna
+                             fija fecha_vencimiento (mes y año del periodo reportado,
+                             día tomado de fecha_pago del reporte).
         - Las de tipo Gerencia solo viven en el histórico (manejo interno).
      Cada mes agrega dos columnas nuevas (valor_cuota_<mes>_<año> y
      estado_de_la_cuota_<mes>_<año>) y nunca pisa lo que ya escribieron
@@ -92,6 +94,8 @@ SPEC_BANCOS = {
                     "nombre_proveedor", "Antigüedad_Crédito", "fecha_vencimiento"],
     # columna fija (no se repite por mes): mes y año del periodo que se reporta + día del reporte
     "columna_fecha": "fecha_vencimiento",
+    # las filas quedan siempre ordenadas por esa fecha, de la más reciente a la más antigua
+    "ordenar_por_fecha_desc": True,
     "metricas": ["valor_cuota", "capital", "interes", METRICA_ESTADO],
     # en bancos se agrupan y ocultan las columnas de los meses anteriores (se expanden con "+")
     "ocultar_meses_anteriores": True,
@@ -669,6 +673,30 @@ def _insertar_columna_fija(ws, nombre, despues_de, spec):
     return pos
 
 
+def _ordenar_filas_por_fecha(ws, col_fecha, cols_clave, descendente=True):
+    """Reordena las filas de datos por la columna de fecha (sin fecha al final). Mueve valores
+    y estilos juntos, así cada obligación conserva su estado y sus montos de todos los meses."""
+    ultima = _ultima_fila_datos(ws, cols_clave)
+    if ultima < 3:
+        return
+    ncols = _ultima_col(ws)
+    filas = []
+    for r in range(2, ultima + 1):
+        celdas = [ws.cell(r, c) for c in range(1, ncols + 1)]
+        filas.append(([c.value for c in celdas], [copy(c._style) for c in celdas]))
+
+    def clave(item):
+        f = _a_fecha(item[0][col_fecha - 1])
+        return (f is None, -f.toordinal() if (f and descendente) else (f.toordinal() if f else 0))
+
+    ordenadas = sorted(filas, key=clave)          # estable: empates conservan su orden
+    for i, (valores, estilos) in enumerate(ordenadas):
+        for c, (v, st) in enumerate(zip(valores, estilos), 1):
+            celda = ws.cell(2 + i, c)
+            celda.value = v
+            celda._style = st
+
+
 def _valor_columna_nueva(nombre_norm, obj, spec, nombres):
     """Valor de cada columna al crear una fila nueva en la hoja de control."""
     if nombre_norm in ("id_proveedor", "identificacion_proveedor"):
@@ -839,6 +867,10 @@ def _actualizar_hoja_control(wb, spec, objetivos, mes, anio, fecha_op):
         if c_fecha and ws.cell(ultima, c_fecha).value:
             ws.cell(ultima, c_fecha).number_format = FORMATO_FECHA
         resumen["nuevas"].append(o)
+
+    # 3b) orden fijo por fecha de vencimiento (más reciente primero)
+    if spec.get("ordenar_por_fecha_desc") and c_fecha:
+        _ordenar_filas_por_fecha(ws, c_fecha, cols_clave)
 
     # 4) lista desplegable PENDIENTE / PAGADO y autofiltro
     ultima_final = max(_ultima_fila_datos(ws, cols_clave), 2)
