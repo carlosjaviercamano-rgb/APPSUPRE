@@ -811,10 +811,187 @@ def _leer_y_filtrar_por_cuenta(archivos, codigo_cuenta, mes_num=None):
     return pd.concat(frames, ignore_index=True)
 
 
+def _a_centavos(x):
+    return int(round(float(x) * 100))
+
+
+def _pares_exactos(valores_cent, vivos):
+    """Parejas (i, j) cuya suma es cero. Busca por valor (sin recorrer todas las parejas)."""
+    from collections import defaultdict
+    por_valor = defaultdict(list)
+    for i, v in enumerate(valores_cent):
+        por_valor[v].append(i)
+    out = []
+    for i, v in enumerate(valores_cent):
+        if not vivos[i]:
+            continue
+        for j in por_valor.get(-v, ()):
+            if j > i and vivos[j]:
+                vivos[i] = vivos[j] = False
+                out.append((i, j))
+                break
+    return out
+
+
+def _ternas_exactas(valores_cent, vivos):
+    """Ternas (i, j, k) que suman cero: O(n²) con búsqueda por valor."""
+    from collections import defaultdict
+    por_valor = defaultdict(list)
+    for i, v in enumerate(valores_cent):
+        por_valor[v].append(i)
+    out = []
+    n = len(valores_cent)
+    for i in range(n):
+        if not vivos[i]:
+            continue
+        for j in range(i + 1, n):
+            if not vivos[j]:
+                continue
+            for k in por_valor.get(-(valores_cent[i] + valores_cent[j]), ()):
+                if k > j and vivos[k]:
+                    vivos[i] = vivos[j] = vivos[k] = False
+                    out.append((i, j, k))
+                    break
+            if not vivos[i]:
+                break
+    return out
+
+
+def _grupos_exactos_mitad(valores_cent, vivos, tam, limite_vivos, vence):
+    """Grupos de 4 (pareja + pareja) o de 5 (terna + pareja) que suman cero. Solo se intenta
+    cuando quedan pocas cédulas pendientes (la búsqueda crece muy rápido)."""
+    import time
+    from itertools import combinations
+    out = []
+    while time.time() < vence:
+        idx = [i for i, ok in enumerate(vivos) if ok]
+        if len(idx) < tam or len(idx) > limite_vivos:
+            break
+        pares = {}
+        for a, b in combinations(idx, 2):
+            pares.setdefault(valores_cent[a] + valores_cent[b], []).append((a, b))
+        hallado = None
+        if tam == 4:
+            for (a, b) in combinations(idx, 2):
+                for (c, d) in pares.get(-(valores_cent[a] + valores_cent[b]), ()):
+                    if len({a, b, c, d}) == 4:
+                        hallado = (a, b, c, d)
+                        break
+                if hallado:
+                    break
+        else:
+            for (a, b, c) in combinations(idx, 3):
+                for (d, e) in pares.get(-(valores_cent[a] + valores_cent[b] + valores_cent[c]), ()):
+                    if len({a, b, c, d, e}) == 5:
+                        hallado = (a, b, c, d, e)
+                        break
+                if hallado:
+                    break
+        if not hallado:
+            break
+        for i in hallado:
+            vivos[i] = False
+        out.append(hallado)
+    return out
+
+
+def _combinaciones_que_se_anulan(items, segundos_max=120):
+    """
+    items: lista [(cedula, saldo)]. Devuelve (lista de grupos de cédulas cuyo saldo suma 0, completo).
+    Mismo criterio que la búsqueda original (grupos de 2 a 5 cédulas, primero los más chicos),
+    pero sin recorrer todas las combinaciones posibles: con cientos de cédulas pendientes la
+    búsqueda anterior no terminaba nunca.
+    """
+    import time
+    vence = time.time() + segundos_max
+    valores = [_a_centavos(v) for _, v in items]
+    vivos = [True] * len(items)
+    grupos = []
+    grupos += _pares_exactos(valores, vivos)
+    grupos += _ternas_exactas(valores, vivos)
+    completo = time.time() < vence
+    grupos += _grupos_exactos_mitad(valores, vivos, 4, 400, vence)
+    grupos += _grupos_exactos_mitad(valores, vivos, 5, 80, vence)
+    completo = completo and time.time() < vence
+    return [[items[i][0] for i in g] for g in grupos], completo
+
+
+USUARIO_PAGOS_VIRTUALES = "administrador sistema"
+
+
+def _normalizar_texto(x):
+    import unicodedata
+    t = unicodedata.normalize("NFKD", str(x if x is not None else ""))
+    return "".join(c for c in t if not unicodedata.combining(c)).strip().lower()
+
+
+def _conciliar_pagos_sucursal_virtual(df, col_valor, col_iden):
+    """
+    Pagos de la sucursal virtual: el pago lo crea el usuario «Administrador sistema» y la
+    descripción trae el número de ticket («...sucursal virtual con numero de ticket N y id de
+    transacción X»). La compensación (movimiento contrario) lleva la misma descripción, la
+    puede crear cualquier usuario.
+
+    Regla: solo se cruzan entre sí, con el mismo tercero, el mismo ticket y el mismo valor
+    (de signo contrario) -> SIN NOVEDAD. Lo que no cruza así queda en REVISAR. Un movimiento de
+    «Administrador sistema» sin esa descripción también queda en REVISAR y no se cruza.
+    Estos movimientos NO entran en las demás reglas (saldo por cédula ni cruce entre cédulas).
+    Devuelve el resumen para mostrar en pantalla.
+    """
+    import re
+    from collections import deque
+
+    resumen = {"cruzados": 0, "revisar": 0, "admin_sin_descripcion": 0}
+    if "descripcion" not in df.columns:
+        return resumen
+
+    desc = df["descripcion"].map(_normalizar_texto)
+    ticket = desc.str.extract(r"ticket\s*[:#]?\s*(\d+)")[0]
+    es_virtual = desc.str.contains("virtual", na=False) & ticket.notna()
+    if "usuariocreador" in df.columns:
+        es_admin = df["usuariocreador"].map(_normalizar_texto) == USUARIO_PAGOS_VIRTUALES
+    else:
+        es_admin = pd.Series(False, index=df.index)
+
+    admin_sin_desc = es_admin & ~es_virtual
+    df.loc[admin_sin_desc, "concilia_con_id"] = "REVISAR"
+    resumen["admin_sin_descripcion"] = int(admin_sin_desc.sum())
+
+    idx_virtual = df.index[es_virtual]
+    grupos = {}
+    for idx in idx_virtual:
+        ced = df.at[idx, col_iden]
+        if not ced:                      # sin tercero no se puede cruzar
+            df.at[idx, "concilia_con_id"] = "REVISAR"
+            continue
+        grupos.setdefault((ced, ticket[idx]), []).append(idx)
+
+    for _, idxs in grupos.items():
+        negativos = {}
+        for idx in idxs:
+            v = df.at[idx, col_valor]
+            if v < 0:
+                negativos.setdefault(_a_centavos(v), deque()).append(idx)
+        for idx in idxs:
+            v = df.at[idx, col_valor]
+            if v > 0:
+                cola = negativos.get(-_a_centavos(v))
+                if cola:
+                    otro = cola.popleft()
+                    df.at[idx, "concilia_con_id"] = "SIN NOVEDAD"
+                    df.at[otro, "concilia_con_id"] = "SIN NOVEDAD"
+        for idx in idxs:
+            if df.at[idx, "concilia_con_id"] == "":
+                df.at[idx, "concilia_con_id"] = "REVISAR"
+
+    mov_virtuales = df.loc[es_virtual | admin_sin_desc, "concilia_con_id"]
+    resumen["cruzados"] = int((mov_virtuales == "SIN NOVEDAD").sum())
+    resumen["revisar"] = int((mov_virtuales == "REVISAR").sum())
+    return resumen
+
+
 def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
     """Aplica la lógica de conciliación y retorna el DataFrame resultado."""
-    from itertools import combinations
-
     col_valor = "valor"
     col_iden  = "identificacion"
     col_id    = "id"
@@ -831,24 +1008,27 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
     if total_movimientos == 0:
         return df
 
+    # Pagos de sucursal virtual: regla aparte (ver _conciliar_pagos_sucursal_virtual)
+    df.attrs["pagos_virtuales"] = _conciliar_pagos_sucursal_virtual(df, col_valor, col_iden)
+
     def _buscar_pares_internos(grupo):
+        """Cada movimiento positivo se cruza con el primer negativo del mismo valor."""
+        from collections import deque
         pares = set()
-        pos    = grupo[grupo[col_valor] > 0]
-        neg    = grupo[grupo[col_valor] < 0]
-        usados = set()
-        for ip, rp in pos.iterrows():
-            if ip in pares: continue
-            vp = round(rp[col_valor], 2)
-            for inn, rn in neg.iterrows():
-                if inn in usados: continue
-                vn = round(rn[col_valor], 2)
-                if abs(vp + vn) < 0.01:
-                    pares.add(ip); pares.add(inn); usados.add(inn)
-                    break
+        negativos = {}
+        for idx, v in zip(grupo.index, grupo[col_valor]):
+            if v < 0:
+                negativos.setdefault(_a_centavos(v), deque()).append(idx)
+        for idx, v in zip(grupo.index, grupo[col_valor]):
+            if v > 0:
+                cola = negativos.get(-_a_centavos(v))
+                if cola:
+                    pares.add(idx)
+                    pares.add(cola.popleft())
         return pares
 
     indices_sn_interno = set()
-    for ced, grupo in df[df[col_iden] != ""].groupby(col_iden):
+    for ced, grupo in df[(df[col_iden] != "") & (df["concilia_con_id"] == "")].groupby(col_iden):
         pares = _buscar_pares_internos(grupo)
         indices_sn_interno.update(pares)
     df.loc[list(indices_sn_interno), "concilia_con_id"] = "SIN NOVEDAD"
@@ -866,37 +1046,26 @@ def _ejecutar_conciliacion_puentes(df_filtrado, codigo_cuenta):
     saldos_pend  = dict(ced_con_sal)
     concilia_map = {}
 
-    encontrado = True
-    while encontrado and len(saldos_pend) >= 2:
-        encontrado = False
-        items = list(saldos_pend.items())
-        for r in range(2, min(len(items) + 1, 6)):
-            if encontrado: break
-            for combo in combinations(items, r):
-                ceds = [c for c, _ in combo]
-                vals = [v for _, v in combo]
-                if abs(round(sum(vals), 2)) < 0.01:
-                    for ced in ceds:
-                        saldo_ced = saldos_pend[ced]
-                        opuestas  = [c for c in ceds if c != ced and saldos_pend[c] * saldo_ced < 0]
-                        if not opuestas:
-                            opuestas = [c for c in ceds if c != ced]
-                        ced_op   = opuestas[0]
-                        saldo_op = saldos_pend[ced_op]
-                        filas_op  = df[(df[col_iden] == ced_op) & (df["concilia_con_id"] == "")]
-                        mov_exact = filas_op[abs(filas_op[col_valor] - saldo_op) < 0.01]
-                        if not mov_exact.empty:
-                            id_ref = int(mov_exact[col_id].iloc[0])
-                        else:
-                            mov_s  = filas_op[filas_op[col_valor] * saldo_ced < 0]
-                            id_ref = int(mov_s[col_id].iloc[0]) if not mov_s.empty \
-                                     else int(filas_op[col_id].iloc[0]) if not filas_op.empty \
-                                     else ced_op
-                        concilia_map[ced] = (f"Concilia con ID {id_ref}", saldo_ced)
-                    for ced in ceds:
-                        del saldos_pend[ced]
-                    encontrado = True
-                    break
+    grupos, completo = _combinaciones_que_se_anulan(list(saldos_pend.items()))
+    df.attrs["busqueda_incompleta"] = not completo
+    for ceds in grupos:
+        for ced in ceds:
+            saldo_ced = saldos_pend[ced]
+            opuestas  = [c for c in ceds if c != ced and saldos_pend[c] * saldo_ced < 0]
+            if not opuestas:
+                opuestas = [c for c in ceds if c != ced]
+            ced_op   = opuestas[0]
+            saldo_op = saldos_pend[ced_op]
+            filas_op  = df[(df[col_iden] == ced_op) & (df["concilia_con_id"] == "")]
+            mov_exact = filas_op[abs(filas_op[col_valor] - saldo_op) < 0.01]
+            if not mov_exact.empty:
+                id_ref = int(mov_exact[col_id].iloc[0])
+            else:
+                mov_s  = filas_op[filas_op[col_valor] * saldo_ced < 0]
+                id_ref = int(mov_s[col_id].iloc[0]) if not mov_s.empty \
+                         else int(filas_op[col_id].iloc[0]) if not filas_op.empty \
+                         else ced_op
+            concilia_map[ced] = (f"Concilia con ID {id_ref}", saldo_ced)
 
     for ced, (label, saldo_ced) in concilia_map.items():
         filas_ced = df[(df[col_iden] == ced) & (df["concilia_con_id"] == "")]
@@ -937,6 +1106,18 @@ def _mostrar_resultado_puentes(df, codigo_cuenta):
     c2.metric("✅ Sin novedad",              f"{n_sin_nov:,}",   f"${val_sin_nov:,.2f}")
     c3.metric("🔗 Concilia con otra cédula", f"{n_concilia:,}",  f"${val_concilia:,.2f}")
     c4.metric("⚠️ Por revisar",              f"{n_revisar:,}",   f"${val_revisar:,.2f} de ${suma_total:,.2f}")
+
+    pv = df.attrs.get("pagos_virtuales") or {}
+    if pv and (pv.get("cruzados") or pv.get("revisar")):
+        st.caption(
+            f"💳 Pagos de sucursal virtual (regla aparte: mismo tercero, mismo ticket y mismo valor): "
+            f"{pv['cruzados']:,} cruzados · {pv['revisar']:,} por revisar"
+            + (f" (de los cuales {pv['admin_sin_descripcion']:,} son de «Administrador sistema» sin la "
+               "descripción del ticket)" if pv.get("admin_sin_descripcion") else "") + ".")
+
+    if df.attrs.get("busqueda_incompleta"):
+        st.warning("⚠️ La búsqueda de cédulas que se anulan entre sí llegó a su límite de tiempo; "
+                   "algunas quedaron en REVISAR y pueden conciliar entre sí. Revísalas a mano.")
 
     st.markdown("#### 📋 Tabla de conciliación")
     st.dataframe(df, use_container_width=True, height=400)
