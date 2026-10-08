@@ -315,6 +315,8 @@ def cargar_config():
         "ruta_tabla_pagos":      r"C:\Users\ASUS\Desktop\BANCOS\MOVIMIENTOS DEL MES\\",
         "ruta_gastos_bancarios": r"C:\Users\ASUS\Desktop\BANCOS\GASTOS BANCARIOS\\",
         "ruta_convertidor":      r"C:\Users\ASUS\Desktop\BANCOS\CONVERTIDOR DE ARCHIVO\\",
+        "ruta_obligaciones_historico":       "",
+        "ruta_control_pagos_obligaciones":   "",
     }
     if os.path.exists(CONFIG_PATH):
         try:
@@ -362,6 +364,7 @@ with st.sidebar:
         ("conciliacion", "🔍", "Conciliaciones",              "Activo", "ready"),
         ("dashboard",    "📊", "Dashboard",                  "Activo", "ready"),
         ("convertidor",  "🔄", "Convertidor de Archivos",    "Activo", "ready"),
+        ("obligaciones", "🧾", "Obligaciones Financieras",   "Activo", "ready"),
     ]:
         is_active = st.session_state.modulo == key
         btn_style = "background:#1e40af;color:white;" if is_active else ""
@@ -463,6 +466,19 @@ def modulo_configuracion():
         )
         st.markdown('</div>', unsafe_allow_html=True)
 
+        st.markdown('<div class="config-card"><h4>🧾 Obligaciones Financieras</h4>', unsafe_allow_html=True)
+        cfg["ruta_obligaciones_historico"] = st.text_input(
+            "Libro histórico (.xlsx)",
+            value=cfg.get("ruta_obligaciones_historico", ""),
+            help="Ruta completa del archivo historico_obligaciones_financiera.xlsx (carpeta de OneDrive sincronizada, no el acceso directo .lnk)"
+        )
+        cfg["ruta_control_pagos_obligaciones"] = st.text_input(
+            "Libro de control de pagos (.xlsx)",
+            value=cfg.get("ruta_control_pagos_obligaciones", ""),
+            help="Ruta completa del archivo control_pagos_obligaciones_financieras.xlsx compartido con tesorería"
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+
     with col2:
         st.markdown('<div class="config-card"><h4>📁 Ruta Compensaciones</h4>', unsafe_allow_html=True)
         cfg["ruta_compensaciones"] = st.text_input(
@@ -489,6 +505,8 @@ def modulo_configuracion():
         conc_ok   = all(cfg.get(r) for r in rutas_conc)
         st.markdown(f"{'✅' if rutas_ok  else '⚠️'} Rutas de planos: {'configuradas' if rutas_ok else 'revisar'}")
         st.markdown(f"{'✅' if conc_ok   else '⚠️'} Rutas de conciliación: {'configuradas' if conc_ok else 'revisar'}")
+        obl_ok = bool(cfg.get("ruta_obligaciones_historico")) and bool(cfg.get("ruta_control_pagos_obligaciones"))
+        st.markdown(f"{'✅' if obl_ok else '⚠️'} Obligaciones financieras: {'configuradas' if obl_ok else 'pendiente'}")
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -539,3 +557,7 @@ elif modulo == "dashboard":
 elif modulo == "convertidor":
     from modulo_convertidor import render as render_convertidor
     render_convertidor(st.session_state.config)
+elif modulo == "obligaciones":
+    import importlib, generar_obligaciones, modulo_obligaciones
+    importlib.reload(generar_obligaciones); importlib.reload(modulo_obligaciones)
+    modulo_obligaciones.render(st.session_state.config)
