@@ -927,10 +927,10 @@ def _normalizar_texto(x):
 
 def _conciliar_pagos_sucursal_virtual(df, col_valor, col_iden):
     """
-    Pagos de la sucursal virtual: el pago lo crea el usuario «Administrador sistema» y la
-    descripción trae el número de ticket («...sucursal virtual con numero de ticket N y id de
-    transacción X»). La compensación (movimiento contrario) lleva la misma descripción, la
-    puede crear cualquier usuario.
+    Pagos de la sucursal virtual. El pago lo crea el usuario «Administrador sistema» y su
+    descripción trae el ticket («...sucursal virtual con numero de ticket N y id de transacción X»).
+    La compensación (movimiento contrario, de cualquier usuario) trae el mismo ticket al final de
+    la descripción: «COMPENSACION PAGO PAGINA KUSHKI N».
 
     Regla: solo se cruzan entre sí, con el mismo tercero, el mismo ticket y el mismo valor
     (de signo contrario) -> SIN NOVEDAD. Lo que no cruza así queda en REVISAR. Un movimiento de
@@ -946,8 +946,12 @@ def _conciliar_pagos_sucursal_virtual(df, col_valor, col_iden):
         return resumen
 
     desc = df["descripcion"].map(_normalizar_texto)
-    ticket = desc.str.extract(r"ticket\s*[:#]?\s*(\d+)")[0]
-    es_virtual = desc.str.contains("virtual", na=False) & ticket.notna()
+    ticket_pago = desc.str.extract(r"ticket\s*[:#]?\s*(\d+)")[0]
+    es_pago = desc.str.contains("virtual", na=False) & ticket_pago.notna()
+    ticket_comp = desc.str.extract(r"compensacion.{0,30}kushki\D{0,10}(\d{6,})")[0]
+    es_comp = ticket_comp.notna()
+    ticket = ticket_pago.where(es_pago, ticket_comp)
+    es_virtual = es_pago | es_comp
     if "usuariocreador" in df.columns:
         es_admin = df["usuariocreador"].map(_normalizar_texto) == USUARIO_PAGOS_VIRTUALES
     else:
