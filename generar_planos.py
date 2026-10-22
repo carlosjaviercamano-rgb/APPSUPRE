@@ -7,6 +7,8 @@ import os
 import zipfile
 import streamlit as st
 
+from tipo_documento import obtener_tipos_documento
+
 EMPRESAS = {
     "Movicap":       "ruta_movicap",
     "Suprecartera":  "ruta_suprecartera",
@@ -24,7 +26,7 @@ METODO_PAGO = {
 
 def crear_planos(df_sheet1, config, df_area_banco, tipo_pago,
                  cedulas_excluidas=None, cedulas_solo_cuota=None,
-                 cedulas_inmovilizadas=None):
+                 cedulas_inmovilizadas=None, tipos_documento=None):
     if df_sheet1 is None or df_sheet1.empty:
         raise ValueError("No hay datos en Sheet1 para generar planos.")
 
@@ -39,6 +41,7 @@ def crear_planos(df_sheet1, config, df_area_banco, tipo_pago,
     tipo_str  = "PAGOS_BANCARIOS" if tipo_pago == "bancarios" else "PAGOS_RECAUDOS"
 
     archivos_generados = []
+    tipos = obtener_tipos_documento(tipos_documento)
 
     excluidas     = [str(c).strip() for c in (cedulas_excluidas or [])]
     solo_cuota    = [str(c).strip() for c in (cedulas_solo_cuota or [])]
@@ -56,9 +59,9 @@ def crear_planos(df_sheet1, config, df_area_banco, tipo_pago,
         if df_emp.empty:
             continue
 
-        df_cash     = _construir_cash_receipt(df_emp, empresa, solo_cuota, inmovilizadas)
-        df_services = _construir_services(df_emp, df_cash, inmovilizadas)
-        df_payment  = _construir_payment_method(df_emp, df_cash, empresa)
+        df_cash     = _construir_cash_receipt(df_emp, empresa, solo_cuota, inmovilizadas, tipos)
+        df_services = _construir_services(df_emp, df_cash, inmovilizadas, tipos)
+        df_payment  = _construir_payment_method(df_emp, df_cash, empresa, None, tipos)
 
         # ── Partir en bloques de máx 150 filas ───────────────────────────
         LIMITE = 150
@@ -74,13 +77,13 @@ def crear_planos(df_sheet1, config, df_area_banco, tipo_pago,
 
             df_cash_b     = df_cash.iloc[inicio:fin].reset_index(drop=True)
             df_emp_b      = df_emp.iloc[inicio:fin].reset_index(drop=True)
-            df_services_b = _construir_services(df_emp_b, df_cash_b, inmovilizadas)
-            df_payment_b  = _construir_payment_method(df_emp_b, df_cash_b, empresa)
+            df_services_b = _construir_services(df_emp_b, df_cash_b, inmovilizadas, tipos)
+            df_payment_b  = _construir_payment_method(df_emp_b, df_cash_b, empresa, None, tipos)
 
             # Renumerar IDs desde 1 en cada bloque
             df_cash_b["id"] = range(1, len(df_cash_b) + 1)
-            df_services_b   = _construir_services(df_emp_b, df_cash_b, inmovilizadas)
-            df_payment_b    = _construir_payment_method(df_emp_b, df_cash_b, empresa)
+            df_services_b   = _construir_services(df_emp_b, df_cash_b, inmovilizadas, tipos)
+            df_payment_b    = _construir_payment_method(df_emp_b, df_cash_b, empresa, None, tipos)
 
             sufijo = f"_{bloque_idx + 1}" if n_bloques > 1 else ""
             nombre = f"{tipo_str}_{empresa}_{fecha_str}_{hora_str}{sufijo}.xlsx"
@@ -108,6 +111,8 @@ def crear_planos(df_sheet1, config, df_area_banco, tipo_pago,
     if not archivos_generados:
         return "No se encontraron datos para ninguna empresa."
 
+    tipos.avisar()
+
     st.markdown("#### 📥 Descargar planos generados:")
     for arch in archivos_generados:
         arch["buffer"].seek(0)
@@ -126,7 +131,8 @@ def crear_planos(df_sheet1, config, df_area_banco, tipo_pago,
 # CONSTRUCCIÓN DE HOJAS
 # ══════════════════════════════════════════════════════════════════════════
 
-def _construir_cash_receipt(df, empresa, solo_cuota=None, inmovilizadas=None):
+def _construir_cash_receipt(df, empresa, solo_cuota=None, inmovilizadas=None, tipos=None):
+    tipos = tipos or obtener_tipos_documento({})
     solo_cuota    = solo_cuota or []
     inmovilizadas = inmovilizadas or {}
     rows = []
@@ -160,7 +166,7 @@ def _construir_cash_receipt(df, empresa, solo_cuota=None, inmovilizadas=None):
             "fechaDocumento":              _fecha(row.get("FECHA_DOCUMENTO")),
             "fechaPago":                   _fecha(row.get("FECHA")),
             "detalle":                     row.get("DETALLE", ""),
-            "codigoTipoDni":               "CC",
+            "codigoTipoDni":               tipos.tipo(ced_str),
             "dni":                         ced_str,
             "factura":                     _factura(row.get("NUM_FACTURA", "")),
             "valorPago":                   valor_pago,
@@ -173,7 +179,8 @@ def _construir_cash_receipt(df, empresa, solo_cuota=None, inmovilizadas=None):
     return pd.DataFrame(rows)
 
 
-def _construir_services(df, df_cash, inmovilizadas=None):
+def _construir_services(df, df_cash, inmovilizadas=None, tipos=None):
+    tipos = tipos or obtener_tipos_documento({})
     inmovilizadas = inmovilizadas or {}
     rows = []
     for (idx, row_emp), (_, row_cash) in zip(df.iterrows(), df_cash.iterrows()):
@@ -191,15 +198,15 @@ def _construir_services(df, df_cash, inmovilizadas=None):
         if valor_cb > 0:
             rows.append({"idDocumento": id_doc, "codigoServicio": 586325,
                          "valor": valor_cb, "factura": factura,
-                         "fechaVencimiento": None, "dni": cedula, "codigoTipoDni": "CC"})
+                         "fechaVencimiento": None, "dni": cedula, "codigoTipoDni": tipos.tipo(ced_str)})
         elif inmovilizacion > 0:
             rows.append({"idDocumento": id_doc, "codigoServicio": 19051,
                          "valor": inmovilizacion, "factura": factura,
-                         "fechaVencimiento": None, "dni": cedula, "codigoTipoDni": "CC"})
+                         "fechaVencimiento": None, "dni": cedula, "codigoTipoDni": tipos.tipo(ced_str)})
         elif otros_gastos > 0:
             rows.append({"idDocumento": id_doc, "codigoServicio": 11111,
                          "valor": otros_gastos, "factura": factura,
-                         "fechaVencimiento": None, "dni": cedula, "codigoTipoDni": "CC"})
+                         "fechaVencimiento": None, "dni": cedula, "codigoTipoDni": tipos.tipo(ced_str)})
 
         if ced_str in inmovilizadas:
             data_im = inmovilizadas[ced_str]
@@ -212,13 +219,14 @@ def _construir_services(df, df_cash, inmovilizadas=None):
                         "factura":          factura,
                         "fechaVencimiento": None,
                         "dni":              cedula,
-                        "codigoTipoDni":    "CC",
+                        "codigoTipoDni":    tipos.tipo(ced_str),
                     })
 
     return pd.DataFrame(rows)
 
 
-def _construir_payment_method(df, df_cash, empresa, inmovilizadas=None):
+def _construir_payment_method(df, df_cash, empresa, inmovilizadas=None, tipos=None):
+    tipos = tipos or obtener_tipos_documento({})
     metodo = METODO_PAGO.get(empresa, "0040")
     rows = []
     for (idx, row_emp), (_, row_cash) in zip(df.iterrows(), df_cash.iterrows()):
@@ -231,7 +239,7 @@ def _construir_payment_method(df, df_cash, empresa, inmovilizadas=None):
             "valor":            _num(row_emp.get("CUOTA")),
             "voucher":          None,
             "dni":              cedula,
-            "codigoTipoDni":    "CC",
+            "codigoTipoDni":    tipos.tipo(cedula),
         })
 
     return pd.DataFrame(rows)

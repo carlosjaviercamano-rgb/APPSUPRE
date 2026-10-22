@@ -7,6 +7,8 @@ import os
 import zipfile
 import streamlit as st
 
+from tipo_documento import obtener_tipos_documento
+
 NIT_ENTIDAD_BANCARIOS = {
     "BANCOLOMBIA": "890903938",
     "DAVIVIENDA":  "860034313",
@@ -27,7 +29,8 @@ ENTIDADES_RECAUDO = {
 }
 
 
-def crear_compensaciones(df_area_banco, config, tipo_pago="bancarios", prefijo="COMPENSACION"):
+def crear_compensaciones(df_area_banco, config, tipo_pago="bancarios", prefijo="COMPENSACION",
+                         tipos_documento=None):
     if df_area_banco is None or df_area_banco.empty:
         raise ValueError("No hay datos en Área de Banco para generar compensaciones.")
 
@@ -41,6 +44,7 @@ def crear_compensaciones(df_area_banco, config, tipo_pago="bancarios", prefijo="
 
     hora_str = datetime.now().strftime("%H_%M_%S")
     archivos_generados = []
+    tipos = obtener_tipos_documento(tipos_documento)
 
     ruta_auto = config.get("ruta_compensaciones", "") if config else ""
 
@@ -53,9 +57,9 @@ def crear_compensaciones(df_area_banco, config, tipo_pago="bancarios", prefijo="
         nombre    = f"{prefijo}_{fecha_str}_{hora_str}.xlsx"
 
         if tipo_pago == "bancarios":
-            buffer = _generar_bancarios(df_grupo)
+            buffer = _generar_bancarios(df_grupo, tipos)
         else:
-            buffer = _generar_recaudos(df_grupo, fecha_doc)
+            buffer = _generar_recaudos(df_grupo, fecha_doc, tipos)
 
         # ── Guardar automáticamente en ruta configurada ──────────────────
         if ruta_auto:
@@ -110,13 +114,15 @@ def crear_compensaciones(df_area_banco, config, tipo_pago="bancarios", prefijo="
                 key=f"dl_{prefijo}_{arch['fecha']}"
             )
 
+    tipos.avisar()
     return f"{len(archivos_generados)} compensaciones generadas correctamente."
 
 
 # ══════════════════════════════════════════════════════════════════════════
 # LÓGICA BANCARIOS
 # ══════════════════════════════════════════════════════════════════════════
-def _generar_bancarios(df):
+def _generar_bancarios(df, tipos=None):
+    tipos = tipos or obtener_tipos_documento({})
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Items"
@@ -165,7 +171,7 @@ def _generar_bancarios(df):
             consecutivo,
             CODIGO_CENTRO_COSTO,
             cedula,
-            "CC",
+            tipos.tipo(cedula),
             CODIGO_CUENTA_CREDITO,
             -abs(valor),
             "", "", None, None, None, None
@@ -181,7 +187,8 @@ def _generar_bancarios(df):
 # ══════════════════════════════════════════════════════════════════════════
 # LÓGICA RECAUDOS
 # ══════════════════════════════════════════════════════════════════════════
-def _generar_recaudos(df, fecha_doc):
+def _generar_recaudos(df, fecha_doc, tipos=None):
+    tipos = tipos or obtener_tipos_documento({})
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Items"
@@ -240,7 +247,7 @@ def _generar_recaudos(df, fecha_doc):
             fecha_out = fecha_v
         else:
             nit_cred  = cedula
-            tipo_dni  = "CC"
+            tipo_dni  = tipos.tipo(cedula)
             cuenta    = CODIGO_CUENTA_CREDITO
             fra_out   = ""
             fecha_out = None

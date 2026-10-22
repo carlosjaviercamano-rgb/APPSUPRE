@@ -7,6 +7,8 @@ import os
 import re
 import streamlit as st
 
+from tipo_documento import obtener_tipos_documento
+
 # ── Constantes fijas de Kushki ───────────────────────────────────────────
 DNI_TERCERO       = "901000330"
 TIPO_TERCERO      = "NIT"
@@ -216,7 +218,7 @@ def _mostrar_reporte_validacion_kushki(reporte, duplicados):
         st.info(f"ℹ️ {reporte['sin_cambios']} movimiento(s) conciliados sin cambios de cédula.")
 
 
-def crear_compensacion_kushki(archivo_excel, archivo_conciliacion, config=None):
+def crear_compensacion_kushki(archivo_excel, archivo_conciliacion, config=None, tipos_documento=None):
     """
     Genera un archivo de compensación (hoja Items) por cada fecha distinta
     encontrada en la columna 'created' del reporte de Kushki. Solo se
@@ -259,6 +261,7 @@ def crear_compensacion_kushki(archivo_excel, archivo_conciliacion, config=None):
             "compensación."
         )
 
+    tipos = obtener_tipos_documento(tipos_documento)
     df["fecha_grupo"] = df["created_dt"].dt.date
 
     hora_str = datetime.now().strftime("%d_%m_%Y_%H_%M_%S")
@@ -309,7 +312,7 @@ def crear_compensacion_kushki(archivo_excel, archivo_conciliacion, config=None):
                 ticket = ticket[:-2]
             filas_credito.append({
                 "codigoCentroCosto": CENTRO_COSTO, "dniTercero": dni_credito,
-                "codigoTipoDniTercero": "CC", "codigoCuenta": CUENTA_CREDITO,
+                "codigoTipoDniTercero": tipos.tipo(dni_credito), "codigoCuenta": CUENTA_CREDITO,
                 "valor": -abs(row["approved_transaction_amount"]),
                 "factura": "", "fechaVencimiento": None,
                 "codigoImpuesto": None, "valorBaseImpuesto": None, "porcentajeImpuesto": None,
@@ -349,6 +352,7 @@ def crear_compensacion_kushki(archivo_excel, archivo_conciliacion, config=None):
             key=f"dl_kushki_{arch['nombre']}",
         )
 
+    tipos.avisar()
     return f"{len(df)} movimiento(s) procesados en {len(archivos_generados)} archivo(s) (uno por fecha)."
 
 
