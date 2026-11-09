@@ -177,6 +177,16 @@ def _normalizar_sin_acentos(texto):
     return s
 
 
+def _es_estado_activo(estado):
+    """
+    True si el comprobante está ACTIVO. Los auxiliares nuevos de AWS traen la
+    columna «estado» (Activo, Editado, Reversión, Revertido, Cancelado...).
+    Un estado vacío (auxiliares antiguos sin esa columna) se trata como activo.
+    """
+    e = _normalizar_sin_acentos(estado)
+    return e in ("", "ACTIVO", "NAN", "NONE")
+
+
 def _leer_archivo_aux(f):
     """
     Lee un archivo auxiliar en .xlsx o .csv. Para CSV detecta
@@ -275,19 +285,21 @@ def filtrar_datos(archivos_aux, archivo_extracto, empresa, codigo_cuenta, mes_id
         col_deb = next((c for c in df.columns if c == 'debito'), None)
         col_cre = next((c for c in df.columns if c == 'credito'), None)
         col_des = next((c for c in df.columns if 'descripcion' in c or 'descripci' in c), None)
+        col_est = next((c for c in df.columns if c == 'estado'), None)
 
         df_norm = pd.DataFrame({
             "fecha":       df[col_fec].values,
             "descripcion": df[col_des].astype(str).values if col_des else [""] * len(df),
             "debito":      pd.to_numeric(df[col_deb], errors='coerce').fillna(0).round(2).values if col_deb else np.zeros(len(df)),
             "credito":     pd.to_numeric(df[col_cre], errors='coerce').fillna(0).round(2).values if col_cre else np.zeros(len(df)),
+            "estado":      df[col_est].fillna("").astype(str).str.strip().values if col_est else [""] * len(df),
         })
         frames_aux.append(df_norm)
 
     # ── Si no hay auxiliar: continuar con DataFrame vacío en vez de error ──
     sin_auxiliar = not frames_aux
     if sin_auxiliar:
-        df_aux      = pd.DataFrame(columns=["fecha", "descripcion", "debito", "credito"])
+        df_aux      = pd.DataFrame(columns=["fecha", "descripcion", "debito", "credito", "estado"])
         df_aux_orig = pd.DataFrame()
     else:
         df_aux      = pd.concat(frames_aux,  ignore_index=True)
@@ -312,6 +324,8 @@ def filtrar_datos(archivos_aux, archivo_extracto, empresa, codigo_cuenta, mes_id
         "total_deb_aux":    round(df_aux["debito"].sum(),    2) if "debito" in df_aux.columns else 0,
         "total_cre_aux":    round(df_aux["credito"].sum(),   2) if "credito" in df_aux.columns else 0,
         "sin_auxiliar":     sin_auxiliar,
+        # movimientos del auxiliar con comprobante que NO está ACTIVO (se llevan a reclasificación)
+        "n_aux_no_activos": int((~df_aux["estado"].apply(_es_estado_activo)).sum()) if "estado" in df_aux.columns else 0,
     }
 
     return df_banco, df_aux, df_aux_orig, resumen_filtro
@@ -337,6 +351,8 @@ def conciliar(df_banco, df_aux):
     for col in ["fecha", "descripcion", "debito", "credito"]:
         if col not in df_a.columns:
             df_a[col] = pd.Series(dtype="object")
+    if "estado" not in df_a.columns:
+        df_a["estado"] = ""
 
     df_b["DEBITO"]  = pd.to_numeric(df_b["DEBITO"],  errors="coerce").fillna(0).round(2)
     df_b["CREDITO"] = pd.to_numeric(df_b["CREDITO"], errors="coerce").fillna(0).round(2)
@@ -348,6 +364,12 @@ def conciliar(df_banco, df_aux):
 
     b_match = set()
     a_match = set()
+
+    # ── Validación 1: comprobantes que NO están ACTIVOS ───────────────────
+    # (Editado, Reversión, Revertido, Cancelado...). Traen entrada y salida que
+    # se anulan, así que no participan del cruce con el banco ni de las demás
+    # reglas: salen directo como RECLASIFICACION y después sigue la lógica de siempre.
+    a_estado = set(int(i) for i in df_a.loc[~df_a["estado"].apply(_es_estado_activo), "_idx_a"])
 
     def _match_por_valor_fecha(df_banco_sub, col_banco, df_aux_sub, col_aux):
         """
@@ -420,16 +442,16 @@ def conciliar(df_banco, df_aux):
 
     # ── Cruce 1: banco DÉBITO ↔ aux CRÉDITO ──────────────────────────────
     b_deb_sub = df_b[df_b["DEBITO"]  > 0]
-    a_cre_sub = df_a[df_a["credito"] > 0]
+    a_cre_sub = df_a[(df_a["credito"] > 0) & (~df_a["_idx_a"].isin(a_estado))]
     _match_por_valor_fecha(b_deb_sub, "DEBITO", a_cre_sub, "credito")
 
     # ── Cruce 2: banco CRÉDITO ↔ aux DÉBITO ──────────────────────────────
     b_cre_sub = df_b[(df_b["CREDITO"] > 0) & (~df_b["_idx_b"].isin(b_match))]
-    a_deb_sub = df_a[(df_a["debito"]  > 0) & (~df_a["_idx_a"].isin(a_match))]
+    a_deb_sub = df_a[(df_a["debito"]  > 0) & (~df_a["_idx_a"].isin(a_match)) & (~df_a["_idx_a"].isin(a_estado))]
     _match_por_valor_fecha(b_cre_sub, "CREDITO", a_deb_sub, "debito")
 
     # ── Reclasificaciones auxiliar (no cruzado: deb↔cre mismo valor) ─────
-    a_no_match = df_a[~df_a["_idx_a"].isin(a_match)].copy()
+    a_no_match = df_a[~df_a["_idx_a"].isin(a_match) & ~df_a["_idx_a"].isin(a_estado)].copy()
     a_reclass  = set()
 
     if not a_no_match.empty:
@@ -452,6 +474,27 @@ def conciliar(df_banco, df_aux):
 
     # ── Construir partidas conciliatorias ─────────────────────────────────
     partidas = []
+
+    # 2A-0: Reclasificaciones por estado del comprobante (primera validación)
+    for ia in sorted(a_estado):
+        row_a = df_a.loc[ia]
+        ad = float(row_a["debito"])
+        ac = float(row_a["credito"])
+        if ad == 0 and ac == 0:
+            continue
+        desc   = str(row_a.get("descripcion", ""))
+        estado = str(row_a.get("estado", "")).strip()
+        obs    = f"RECLASIF. POR ESTADO: {estado}"
+        if ad > 0:
+            partidas.append({"tipo": "RECLASIFICACION", "origen": "ESTADO", "obs": obs,
+                             "conc_aux": desc, "fecha_aux": row_a.get("fecha"),
+                             "deb": -ad, "cred": 0,
+                             "conc_banco": "", "fecha_banco": None})
+        if ac > 0:
+            partidas.append({"tipo": "RECLASIFICACION", "origen": "ESTADO", "obs": obs,
+                             "conc_aux": "", "fecha_aux": row_a.get("fecha"),
+                             "deb": 0, "cred": -ac,
+                             "conc_banco": desc, "fecha_banco": row_a.get("fecha")})
 
     # 2A: Reclasificaciones
     if not a_no_match.empty:
@@ -502,7 +545,8 @@ def conciliar(df_banco, df_aux):
                              "deb": bc, "cred": 0, "conc_banco": "", "fecha_banco": None})
 
     # 2C: Solo auxiliar (está de más)
-    for ia in df_a[~df_a["_idx_a"].isin(a_match) & ~df_a["_idx_a"].isin(a_reclass)]["_idx_a"]:
+    for ia in df_a[~df_a["_idx_a"].isin(a_match) & ~df_a["_idx_a"].isin(a_reclass)
+                   & ~df_a["_idx_a"].isin(a_estado)]["_idx_a"]:
         row_a = df_a.loc[ia]
         ad = float(row_a["debito"])
         ac = float(row_a["credito"])
@@ -531,6 +575,7 @@ def conciliar(df_banco, df_aux):
         "diferencia_deb":    diferencia_deb,
         "diferencia_cred":   diferencia_cred,
         "n_reclasif":        sum(1 for p in partidas if p["tipo"] == "RECLASIFICACION"),
+        "n_reclasif_estado": sum(1 for p in partidas if p.get("origen") == "ESTADO"),
         "n_solo_banco":      sum(1 for p in partidas if p["tipo"] == "SOLO_BANCO"),
         "n_solo_aux":        sum(1 for p in partidas if p["tipo"] == "SOLO_AUX"),
         "conciliados_banco": len(b_match),
@@ -607,6 +652,8 @@ def _hoja_conciliacion(wb, partidas, resumen, empresa, cuenta, mes):
                 pass
         if p["conc_banco"]:
             ws.cell(row=row, column=7, value=p["conc_banco"])
+        if p.get("obs"):
+            ws.cell(row=row, column=1 if p["deb"] != 0 else 8, value=p["obs"])
         row += 1
 
     # TOTAL AUXILIAR CONCILIADO

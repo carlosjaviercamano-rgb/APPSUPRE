@@ -501,6 +501,13 @@ def _render_conciliar_bancaria():
         c4.metric("Crédito banco",      f"${resumen_filtro['total_cre_banco']:,.2f}")
         c5.metric("Débito aux",         f"${resumen_filtro['total_deb_aux']:,.2f}")
         c6.metric("Crédito aux",        f"${resumen_filtro['total_cre_aux']:,.2f}")
+        n_no_act = resumen_filtro.get("n_aux_no_activos", 0)
+        if n_no_act:
+            st.info(
+                f"ℹ️ **{n_no_act:,}** movimiento(s) del auxiliar tienen un comprobante que **no está "
+                "ACTIVO** (Editado, Reversión, Revertido…). No se cruzan con el banco: salen directo "
+                "como **reclasificación** y después se aplica la lógica de siempre al resto."
+            )
 
     if btn_conciliar:
         df_banco    = st.session_state.get("banc_df_banco")
@@ -546,6 +553,10 @@ def _render_conciliar_bancaria():
             st.caption(f"Solo banco: {resumen['n_solo_banco']} | "
                        f"Solo aux: {resumen['n_solo_aux']} | "
                        f"Reclasif: {resumen['n_reclasif']}")
+        n_rec_est = resumen.get("n_reclasif_estado", 0)
+        if n_rec_est:
+            st.caption(f"Reclasificaciones por estado del comprobante (no ACTIVO): {n_rec_est:,} "
+                       f"de {resumen['n_reclasif']:,}. En el Excel van marcadas en la columna OBSERVACION.")
 
         if st.session_state.get("banc_excel"):
             from datetime import date, timedelta, datetime as _dt

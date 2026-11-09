@@ -214,10 +214,10 @@ def _a_float(v):
 
 
 def _a_fecha(v):
-    if v is None or (isinstance(v, float) and pd.isna(v)):
-        return None
+    if v is None or v is pd.NaT or (isinstance(v, float) and pd.isna(v)):
+        return None          # vacío (pandas guarda las fechas vacías como NaT)
     if isinstance(v, datetime):
-        return v
+        return None if pd.isna(v) else v
     if hasattr(v, "year") and hasattr(v, "month") and hasattr(v, "day"):
         return datetime(v.year, v.month, v.day)
     s = _texto(v)
@@ -466,7 +466,8 @@ def _aplicar_historico(wb, df_rep, tipos_nuevas):
 
 
 def _es_nulo(v):
-    return v is None or (isinstance(v, float) and pd.isna(v))
+    # None, NaN (float) y NaT (fecha vacía de pandas)
+    return v is None or v is pd.NaT or (isinstance(v, float) and pd.isna(v))
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -513,8 +514,7 @@ def construir_objetivos(filas_hist, claves_nuevas=None):
                 "id_proveedor": id_prov, "identificacion_proveedor": id_prov,
                 "nombre_proveedor": nombre,
                 "antiguedad": ETIQUETA_NUEVO if es_nueva else ETIQUETA_EXISTENTE,
-                "dia_vencimiento": (_a_fecha(v.get("fecha_pago")).day
-                                    if _a_fecha(v.get("fecha_pago")) else None),
+                "dia_vencimiento": (lambda f: f.day if f else None)(_a_fecha(v.get("fecha_pago"))),
                 "valores": {
                     "valor_cuota": round(valor, 2),
                     "capital": round(_a_float(v.get("capital")) or 0.0, 2),
@@ -629,9 +629,13 @@ def _archivar_fila(wb, hoja_origen, ws_origen, fila, headers, fecha_op):
 def _fecha_vencimiento(dia, mes, anio):
     """Fecha del periodo que se reporta con el día que trae el reporte (si el mes tiene
     menos días, queda el último: día 31 en un mes de 30 -> 30)."""
-    if not dia:
+    try:
+        if dia is None or pd.isna(dia) or not int(dia):
+            return None      # el reporte no trae fecha de pago: la fecha queda vacía
+        dia = int(dia)
+    except (TypeError, ValueError):
         return None
-    return datetime(int(anio), int(mes), min(int(dia), calendar.monthrange(int(anio), int(mes))[1]))
+    return datetime(int(anio), int(mes), min(dia, calendar.monthrange(int(anio), int(mes))[1]))
 
 
 def _desplazar_sqref(sqref, desde):
