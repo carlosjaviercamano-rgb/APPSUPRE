@@ -293,7 +293,7 @@ def cargar_corresponsal(archivo):
 
 # Valores a excluir en DAVIVIENDA columna G (REFERENCIA)
 EXCLUIR_DAVIVIENDA = [
-    "Redeban BreB", "BANSUP ESTABLECIMIEN",
+    "Redeban BreB", "BANSUP ESTABLECIMIEN", "Credibanco BreB",
     "Compras y Pagos PSE", "Multiabonos", "BTA PROCESOS ESP."
 ]
 
