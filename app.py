@@ -333,9 +333,20 @@ def guardar_config(cfg):
 
 # ─── Estado de sesión ──────────────────────────────────────────────────────
 if "modulo" not in st.session_state:
-    st.session_state.modulo = "pagos"
+    st.session_state.modulo = "inicio"
 if "config" not in st.session_state:
     st.session_state.config = cargar_config()
+
+# ─── Módulos del menú (el de inicio es la página de bienvenida) ────────────
+MODULOS_MENU = [
+    ("inicio",       "🏠", "Inicio",                    "Activo", "ready"),
+    ("pagos",        "💳", "Aplicación y Compensación", "Activo", "ready"),
+    ("cargue",       "📤", "Cargue Banco",               "Activo", "ready"),
+    ("conciliacion", "🔍", "Conciliaciones",              "Activo", "ready"),
+    ("dashboard",    "📊", "Dashboard",                  "Activo", "ready"),
+    ("convertidor",  "🔄", "Convertidor de Archivos",    "Activo", "ready"),
+    ("obligaciones", "🧾", "Obligaciones Financieras",   "Activo", "ready"),
+]
 
 # ─── Sidebar ───────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -358,14 +369,7 @@ with st.sidebar:
 
     st.markdown("**MÓDULOS**", help="Selecciona el módulo de trabajo")
 
-    for key, icon, label, badge, bcls in [
-        ("pagos",        "💳", "Aplicación y Compensación", "Activo", "ready"),
-        ("cargue",       "📤", "Cargue Banco",               "Activo", "ready"),
-        ("conciliacion", "🔍", "Conciliaciones",              "Activo", "ready"),
-        ("dashboard",    "📊", "Dashboard",                  "Activo", "ready"),
-        ("convertidor",  "🔄", "Convertidor de Archivos",    "Activo", "ready"),
-        ("obligaciones", "🧾", "Obligaciones Financieras",   "Activo", "ready"),
-    ]:
+    for key, icon, label, badge, bcls in MODULOS_MENU:
         is_active = st.session_state.modulo == key
         btn_style = "background:#1e40af;color:white;" if is_active else ""
         if st.button(
@@ -515,6 +519,11 @@ def modulo_configuracion():
         st.session_state.config = cfg
         st.success("✅ Configuración guardada correctamente.")
 
+    # Página de inicio: configuración compartida (assets/inicio + inicio_config.json)
+    st.markdown("---")
+    import modulo_inicio
+    modulo_inicio.render_configuracion()
+
 # ─── MÓDULO: PRÓXIMAMENTE ──────────────────────────────────────────────────
 def modulo_proximamente(nombre, icono):
     st.markdown(f"""
@@ -543,6 +552,12 @@ modulo = st.session_state.modulo
 
 if modulo == "config":
     modulo_configuracion()
+elif modulo == "inicio":
+    import modulo_inicio
+    modulo_inicio.render(
+        st.session_state.config,
+        [(k, i, l) for k, i, l, _, _ in MODULOS_MENU if k != "inicio"]
+    )
 elif modulo == "pagos":
     modulo_pagos()
 elif modulo == "cargue":
