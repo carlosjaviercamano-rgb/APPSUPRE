@@ -550,6 +550,9 @@ def modulo_pagos():
 # ─── ROUTER ────────────────────────────────────────────────────────────────
 modulo = st.session_state.modulo
 
+import modulo_inicio
+modulo_inicio.render_fondo(modulo)   # fondo de burbujas configurable (Sistema -> Configuración)
+
 if modulo == "config":
     modulo_configuracion()
 elif modulo == "inicio":

@@ -34,8 +34,17 @@ CONFIG_POR_DEFECTO = {
     "titulo": "Bienvenido a Supre Financiero",
     "mensaje": "Herramienta de gestión bancaria de SUPRECREDITO. Elige un módulo para empezar.",
     "mostrar_accesos": True,
+    "fondo_burbujas": True,   # fondo azul con burbujas (interruptor general)
+    "fondo_modulos": None,    # claves de módulos con fondo; None = todos (ver MODULOS_FONDO)
     "carrusel_segundos": 6,
     "imagenes": [],          # [{"archivo": "img_xxx.jpg", "titulo": "", "texto": ""}]
+}
+
+# Módulos donde puede aparecer el fondo de burbujas (Configuración queda siempre sin fondo para poder desactivarlo).
+MODULOS_FONDO = {
+    "inicio": "Inicio", "pagos": "Aplicación y Compensación", "cargue": "Cargue Banco",
+    "conciliacion": "Conciliaciones", "dashboard": "Dashboard", "convertidor": "Convertidor de Archivos",
+    "obligaciones": "Obligaciones Financieras",
 }
 
 DESCRIPCIONES = {
@@ -62,9 +71,12 @@ def cargar_config_inicio():
         with open(RUTA_CONFIG, "r", encoding="utf-8") as f:
             guardada = json.load(f)
         if isinstance(guardada, dict):
-            for k in ("titulo", "mensaje", "mostrar_accesos", "carrusel_segundos"):
+            for k in ("titulo", "mensaje", "mostrar_accesos", "fondo_burbujas", "carrusel_segundos"):
                 if k in guardada:
                     cfg[k] = guardada[k]
+            fm = guardada.get("fondo_modulos")
+            if isinstance(fm, list):
+                cfg["fondo_modulos"] = [m for m in fm if m in MODULOS_FONDO]
             imgs = guardada.get("imagenes", [])
             if isinstance(imgs, list):
                 cfg["imagenes"] = [
@@ -94,6 +106,8 @@ def guardar_config_inicio(cfg):
         "titulo": str(cfg.get("titulo", "")).strip(),
         "mensaje": str(cfg.get("mensaje", "")).strip(),
         "mostrar_accesos": bool(cfg.get("mostrar_accesos", True)),
+        "fondo_burbujas": bool(cfg.get("fondo_burbujas", True)),
+        "fondo_modulos": [m for m in (cfg.get("fondo_modulos") or list(MODULOS_FONDO)) if m in MODULOS_FONDO],
         "carrusel_segundos": int(cfg.get("carrusel_segundos", 6)),
         "imagenes": [
             {"archivo": os.path.basename(i["archivo"]),
@@ -170,7 +184,7 @@ def _imagen_base64(ruta, mtime):
     return f"data:{mime};base64,{datos}"
 
 
-def _html_carrusel(imagenes, segundos):
+def _html_carrusel(imagenes, segundos, translucido=False):
     slides = []
     for n, i in enumerate(imagenes):
         ruta = _ruta_imagen(i["archivo"])
@@ -191,6 +205,9 @@ def _html_carrusel(imagenes, segundos):
             (83, 80, 26, 12, -28), (88, 24, 14, 8, 14), (92, 50, 20, 3, -18), (96, 20, 12, 10, 10),
             (69, 22, 16, 15, -16), (35, 12, 10, 6, 8), (62, 12, 10, 13, -8),
         ))
+    fx_display = "none" if translucido else "block"
+    css_trans = (".car{background:rgba(255,255,255,.03)!important;border:1px solid rgba(147,197,253,.22);"
+                 "box-shadow:none!important}") if translucido else ""
     varias = len(imagenes) > 1
     controles = ""
     if varias:
@@ -201,10 +218,11 @@ def _html_carrusel(imagenes, segundos):
     return f"""
 <style>
   html,body{{margin:0;background:transparent;font-family:Inter,system-ui,Segoe UI,Arial,sans-serif}}
+  {css_trans}
   .car{{position:relative;height:{ALTO_CARRUSEL - 16}px;border-radius:14px;overflow:hidden;
         background:linear-gradient(135deg,#0f2447 0%,#1e3a5f 48%,#1e40af 100%);
         box-shadow:0 2px 8px rgba(15,23,42,.22)}}
-  .fx{{position:absolute;inset:0;overflow:hidden;pointer-events:none}}
+  .fx{{position:absolute;inset:0;overflow:hidden;pointer-events:none;display:{fx_display}}}
   .fx::before,.fx::after{{content:"";position:absolute;width:340px;height:340px;border-radius:50%;
         background:radial-gradient(circle,rgba(96,165,250,.30),rgba(96,165,250,0) 68%);
         animation:orb 18s ease-in-out infinite alternate}}
@@ -362,14 +380,98 @@ svg .tick{fill:none;stroke:#10b981;stroke-width:2.6;stroke-linecap:round;stroke-
 '''
 
 
-def _html_panel_modulos(modulos):
+def _html_panel_modulos(modulos, translucido=False):
     tarjetas = []
     for n, (clave, icono, etiqueta) in enumerate(modulos):
         arte = _ARTE.get(clave) or f'<div class="emo">{html.escape(icono)}</div>'
         desc = html.escape(DESCRIPCIONES.get(clave, ""))
         tarjetas.append(f'<div class="card" style="--d:{n * 0.09:.2f}s"><div class="art">{arte}</div>'
                         f'<h3>{html.escape(etiqueta)}</h3><p>{desc}</p></div>')
-    return f'<style>{_CSS_PANEL}</style><div class="grid">{"".join(tarjetas)}</div>'
+    extra = ".card{background:linear-gradient(145deg,rgba(15,36,71,.78),rgba(30,58,138,.78))}" if translucido else ""
+    return f'<style>{_CSS_PANEL}{extra}</style><div class="grid">{"".join(tarjetas)}</div>'
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# FONDO DE BURBUJAS (solo en la página de inicio)
+# ══════════════════════════════════════════════════════════════════════════
+# (izquierda %, diámetro px, duración s, desfase s, deriva px)
+_BURBUJAS_FONDO = (
+    (3, 46, 26, 2, 24), (6, 90, 34, 9, -30), (10, 18, 19, 14, 14), (14, 62, 29, 5, 26), (19, 28, 22, 18, -16),
+    (24, 110, 38, 11, 30), (29, 16, 17, 3, -12), (34, 40, 25, 21, 20), (40, 24, 20, 7, -18), (45, 76, 33, 16, 28),
+    (50, 14, 18, 1, 10), (55, 52, 27, 24, -24), (60, 30, 22, 12, 16), (65, 96, 36, 6, -32), (70, 20, 19, 19, 12),
+    (75, 58, 28, 4, 22), (80, 34, 23, 15, -20), (84, 84, 35, 10, 30), (88, 22, 20, 22, -14), (92, 48, 26, 8, 18),
+    (96, 68, 31, 13, -26), (98, 16, 18, 17, 10), (37, 12, 16, 26, 8), (67, 12, 17, 28, -8),
+)
+
+
+def fondo_activo(modulo, cfg=None):
+    """True si el fondo de burbujas debe verse en ese módulo."""
+    cfg = cfg or cargar_config_inicio()
+    activos = cfg.get("fondo_modulos")
+    if activos is None:
+        activos = list(MODULOS_FONDO)
+    return bool(cfg.get("fondo_burbujas")) and modulo in activos and modulo in MODULOS_FONDO
+
+
+def _tema_streamlit():
+    """'dark', 'light' o None si esta versión de Streamlit no lo informa."""
+    try:
+        t = getattr(st.context, "theme", None)
+        return getattr(t, "type", None) if t is not None else None
+    except Exception:
+        return None
+
+
+def _html_fondo_burbujas(panel=False):
+    """Capa fija detrás del contenido: degradado azul + burbujas translúcidas que suben.
+    panel=False (Inicio): el contenido va directo sobre el fondo, con textos claros.
+    panel=True (demás módulos): el contenido va dentro de un panel sólido (oscuro o claro según el tema),
+    así tablas, formularios y gráficos se ven exactamente igual que sin fondo."""
+    b = "".join(f'<i style="left:{x}%;width:{d}px;height:{d}px;animation-duration:{t}s;animation-delay:-{r}s;--dx:{dx}px"></i>'
+                for x, d, t, r, dx in _BURBUJAS_FONDO)
+    css = (
+        '.stApp{background:linear-gradient(135deg,#0a1630 0%,#10285a 50%,#1b3a9c 100%)!important;isolation:isolate}'
+        '[data-testid="stHeader"]{background:transparent!important}'
+        '[data-testid="stMain"] .block-container{isolation:isolate}'
+        '.fondo-burbujas{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}'
+        '.fondo-burbujas::before,.fondo-burbujas::after{content:"";position:absolute;width:560px;height:560px;border-radius:50%;'
+        'background:radial-gradient(circle,rgba(96,165,250,.30),rgba(96,165,250,0) 68%);animation:fbOrb 22s ease-in-out infinite alternate}'
+        '.fondo-burbujas::before{left:-120px;top:8%}'
+        '.fondo-burbujas::after{right:-140px;bottom:-160px;animation-duration:28s;animation-direction:alternate-reverse}'
+        '.fondo-burbujas i{position:absolute;bottom:-130px;display:block;border-radius:50%;'
+        'background:radial-gradient(circle at 30% 28%,rgba(255,255,255,.30),rgba(147,197,253,.10) 46%,rgba(147,197,253,.03) 70%);'
+        'border:1px solid rgba(191,219,254,.28);animation:fbSube linear infinite}'
+        '@keyframes fbSube{0%{transform:translate(0,0);opacity:0}10%{opacity:1}'
+        '50%{transform:translate(var(--dx),-60vh)}88%{opacity:.9}'
+        '100%{transform:translate(calc(var(--dx) * -.6),-125vh);opacity:0}}'
+        '@keyframes fbOrb{from{transform:translate(0,0)}to{transform:translate(110px,60px)}}'
+        '@media (prefers-reduced-motion:reduce){.fondo-burbujas i,.fondo-burbujas::before,.fondo-burbujas::after{animation:none}}'
+    )
+    if not panel:
+        css += ('[data-testid="stMain"] .stMarkdown p,[data-testid="stMain"] .stMarkdown h4,'
+                '[data-testid="stMain"] [data-testid="stCaptionContainer"]{color:#e2e8f0!important}')
+    else:
+        base = ('[data-testid="stMain"] .block-container{border:1px solid rgba(147,197,253,.22);border-radius:16px;'
+                'padding:2rem 2.2rem 2.6rem!important;margin:1.2rem auto 1.6rem!important;'
+                'width:calc(100% - 2.6rem)!important;max-width:none!important;min-height:calc(100vh - 2.8rem);'
+                'flex:0 0 auto!important;height:auto!important;box-sizing:border-box;'
+                'box-shadow:0 10px 40px rgba(2,6,23,.35);__BG__}')
+        oscuro, claro = "background:rgba(11,18,32,.985)", "background:rgba(255,255,255,.985)"
+        tema = _tema_streamlit()
+        if tema == "dark":
+            css += base.replace("__BG__", oscuro)
+        elif tema == "light":
+            css += base.replace("__BG__", claro)
+        else:  # versión sin st.context.theme: se guía por el modo del sistema
+            css += (base.replace("__BG__", claro) + "@media (prefers-color-scheme:dark){"
+                    + base.replace("__BG__", oscuro) + "}")
+    return f'<style>{css}</style><div class="fondo-burbujas">{b}</div>'
+
+
+def render_fondo(modulo):
+    """Se llama desde app.py antes de dibujar el módulo activo (no hace nada si el fondo está apagado)."""
+    if modulo != "config" and fondo_activo(modulo):
+        st.markdown(_html_fondo_burbujas(panel=(modulo != "inicio")), unsafe_allow_html=True)
 
 
 def render(config=None, modulos=None):
@@ -378,6 +480,7 @@ def render(config=None, modulos=None):
     acceso rápido. Al hacer clic se cambia st.session_state.modulo.
     """
     cfg = cargar_config_inicio()
+    fondo = fondo_activo("inicio", cfg)   # el fondo en sí lo dibuja render_fondo() desde app.py
     nombre = (st.session_state.get("name") or "").strip()
     primer_nombre = nombre.split()[0] if nombre else ""
     saludo = f"{_saludo()}, {html.escape(primer_nombre)}" if primer_nombre else _saludo()
@@ -398,14 +501,14 @@ def render(config=None, modulos=None):
 
     imagenes = _imagenes_existentes(cfg)
     if imagenes:
-        components.html(_html_carrusel(imagenes, cfg["carrusel_segundos"]), height=ALTO_CARRUSEL)
+        components.html(_html_carrusel(imagenes, cfg["carrusel_segundos"], translucido=fondo), height=ALTO_CARRUSEL)
     else:
         st.info("🖼️ Aún no hay imágenes de bienvenida. Se agregan en **Sistema → Configuración → Página de inicio**.")
 
     if cfg["mostrar_accesos"] and modulos:
         st.markdown("#### ¿Qué puedes hacer aquí?")
         filas = -(-len(modulos) // 3)
-        components.html(_html_panel_modulos(modulos), height=filas * 236 + (filas - 1) * 14 + 16, scrolling=True)
+        components.html(_html_panel_modulos(modulos, translucido=fondo), height=filas * 236 + (filas - 1) * 14 + 16, scrolling=True)
         st.caption("Entra a cada módulo desde el menú de la izquierda.")
 
 
@@ -440,6 +543,15 @@ def render_configuracion():
             step=1, key="inicio_in_seg"))
         ed["mostrar_accesos"] = st.checkbox("Mostrar el panel animado de módulos",
                                             value=bool(ed["mostrar_accesos"]), key="inicio_in_acc")
+        ed["fondo_burbujas"] = st.checkbox("Fondo azul con burbujas animadas",
+                                           value=bool(ed["fondo_burbujas"]), key="inicio_in_fondo")
+        if ed["fondo_burbujas"]:
+            sel = ed.get("fondo_modulos")
+            ed["fondo_modulos"] = st.multiselect(
+                "Módulos que muestran el fondo", options=list(MODULOS_FONDO),
+                default=list(MODULOS_FONDO) if sel is None else [m for m in sel if m in MODULOS_FONDO],
+                format_func=lambda k: MODULOS_FONDO[k], key="inicio_in_fmod",
+                help="En los módulos de trabajo el contenido va sobre un panel sólido para que tablas y formularios se lean igual.")
     with c2:
         ed["mensaje"] = st.text_area("Mensaje", value=ed["mensaje"], height=125, key="inicio_in_msg")
 
