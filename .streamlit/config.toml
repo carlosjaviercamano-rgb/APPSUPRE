@@ -1,0 +1,3 @@
+# Tema fijo: la app siempre se ve en modo oscuro, sin importar si el PC está en modo claro u oscuro.
+[theme]
+base = "dark"
